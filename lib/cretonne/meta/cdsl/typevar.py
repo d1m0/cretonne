@@ -340,7 +340,7 @@ class TypeSet(object):
 
         return new
 
-    def map(self, func):
+    def image(self, func):
         # type: (str) -> TypeSet
         """
         Return the image of self across the derived function func
@@ -362,7 +362,7 @@ class TypeSet(object):
         else:
             assert False, "Unknown derived function: " + func
 
-    def map_inverse(self, func):
+    def preimage(self, func):
         # type: (str) -> TypeSet
         """
         Return the inverse image of self across the derived function func
@@ -697,7 +697,7 @@ class TypeVar(object):
         if not self.is_derived:
             self.type_set &= ts
         else:
-            self.base.constrain_types_by_ts(ts.map_inverse(self.derived_func))
+            self.base.constrain_types_by_ts(ts.preimage(self.derived_func))
 
     def constrain_types(self, other):
         # type: (TypeVar) -> None
@@ -723,19 +723,4 @@ class TypeVar(object):
         if not self.is_derived:
             return self.type_set
         else:
-            if (self.derived_func == TypeVar.SAMEAS):
-                return self.base.get_typeset()
-            elif (self.derived_func == TypeVar.LANEOF):
-                return self.base.get_typeset().lane_of()
-            elif (self.derived_func == TypeVar.ASBOOL):
-                return self.base.get_typeset().as_bool()
-            elif (self.derived_func == TypeVar.HALFWIDTH):
-                return self.base.get_typeset().half_width()
-            elif (self.derived_func == TypeVar.DOUBLEWIDTH):
-                return self.base.get_typeset().double_width()
-            elif (self.derived_func == TypeVar.HALFVECTOR):
-                return self.base.get_typeset().half_vector()
-            elif (self.derived_func == TypeVar.DOUBLEVECTOR):
-                return self.base.get_typeset().double_vector()
-            else:
-                assert False, "Unknown derived function: " + self.derived_func
+            return self.base.get_typeset().image(self.derived_func)
