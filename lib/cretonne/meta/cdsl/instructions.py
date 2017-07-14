@@ -11,6 +11,7 @@ try:
         from .ast import Expr, Apply  # noqa
         from .typevar import TypeVar  # noqa
         from .ti import TypeConstraint  # noqa
+        from .xform import XForm # noqa
         # List of operands for ins/outs:
         OpList = Union[Sequence[Operand], Operand]
         ConstrList = Union[Sequence[TypeConstraint], TypeConstraint]
@@ -117,6 +118,7 @@ class Instruction(object):
         self.outs = self._to_operand_tuple(outs)
         self.constraints = self._to_constraint_tuple(constraints)
         self.format = InstructionFormat.lookup(self.ins, self.outs)
+        self.semantics = None  # type: XForm
 
         # Opcode number, assigned by gen_instr.py.
         self.number = None  # type: int

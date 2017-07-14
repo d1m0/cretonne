@@ -218,6 +218,50 @@ class WiderOrEq(TypeConstraint):
         return typ1.wider_or_equal(typ2)
 
 
+class SameWidth(TypeConstraint):
+    """
+    Constraint specifying that two types have the same width. E.g. i32x2 has
+    the same width as i64x1, i16x4, f32x2, f64, b1x64 etc.
+    """
+    def __init__(self, tv1, tv2):
+        # type: (TypeVar, TypeVar) -> None
+        self.tv1 = tv1
+        self.tv2 = tv2
+
+    def _args(self):
+        # type: () -> Tuple[Any,...]
+        """ See TypeConstraint._args() """
+        return (self.tv1, self.tv2)
+
+    def is_trivial(self):
+        # type: () -> bool
+        """ See TypeConstraint.is_trivial() """
+        # Trivially true
+        if (self.tv1 == self.tv2):
+            return True
+
+        ts1 = self.tv1.get_typeset()
+        ts2 = self.tv2.get_typeset()
+
+        bv_intersection_ts = ts1.to_bitvec()
+        bv_intersection_ts &= ts2.to_bitvec()
+
+        # Trivially False
+        if bv_intersection_ts.size() == 0:
+            return True
+
+        return self.is_concrete()
+
+    def eval(self):
+        # type: () -> bool
+        """ See TypeConstraint.eval() """
+        assert self.is_concrete()
+        typ1 = self.tv1.singleton_type()
+        typ2 = self.tv2.singleton_type()
+
+        return (typ1.width() == typ2.width())
+
+
 class TypeEnv(object):
     """
     Class encapsulating the neccessary book keeping for type inference.

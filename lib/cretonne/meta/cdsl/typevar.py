@@ -170,11 +170,13 @@ class TypeSet(object):
                    point widths.
     :param bools: `(min, max)` inclusive range of permitted scalar boolean
                   widths.
+    :param bitvecs : `(min, max)` inclusive range of permitted bitvector
+                  widths.
     """
 
     def __init__(self, lanes=None, ints=None, floats=None, bools=None,
                  bitvecs=None):
-        # type: (BoolInterval, BoolInterval, BoolInterval, BoolInterval) -> None # noqa
+        # type: (BoolInterval, BoolInterval, BoolInterval, BoolInterval, BoolInterval) -> None # noqa
         self.lanes = interval_to_set(decode_interval(lanes, (1, MAX_LANES), 1))
         self.ints = interval_to_set(decode_interval(ints, (8, MAX_BITS)))
         self.floats = interval_to_set(decode_interval(floats, (32, 64)))
@@ -192,7 +194,7 @@ class TypeSet(object):
         return deepcopy(self)
 
     def typeset_key(self):
-        # type: () -> Tuple[Tuple, Tuple, Tuple, Tuple]
+        # type: () -> Tuple[Tuple, Tuple, Tuple, Tuple, Tuple]
         """Key tuple used for hashing and equality."""
         return (tuple(sorted(list(self.lanes))),
                 tuple(sorted(list(self.ints))),
