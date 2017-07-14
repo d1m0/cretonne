@@ -239,3 +239,34 @@ class BoolType(ScalarType):
         # type: () -> int
         """Return the number of bits in a lane."""
         return self.bits
+
+
+class BVType(ScalarType):
+    """A flat bitvector type. Used for semantics description only."""
+
+    def __init__(self, bits):
+        # type: (int) -> None
+        assert bits > 0, 'Must have positive number of bits'
+        super(BVType, self).__init__(
+                name='bv{:d}'.format(bits),
+                membytes=bits // 8,
+                doc="A bitvector type with {} bits.".format(bits))
+        self.bits = bits
+
+    def __repr__(self):
+        # type: () -> str
+        return 'BVType(bits={})'.format(self.bits)
+
+    @staticmethod
+    def with_bits(bits):
+        # type: (int) -> BVType
+        typ = ValueType.by_name('bv{:d}'.format(bits))
+        if TYPE_CHECKING:
+            return cast(BVType, typ)
+        else:
+            return typ
+
+    def lane_bits(self):
+        # type: () -> int
+        """Return the number of bits in a lane."""
+        return self.bits

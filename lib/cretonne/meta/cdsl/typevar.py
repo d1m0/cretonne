@@ -22,6 +22,7 @@ except ImportError:
 
 MAX_LANES = 256
 MAX_BITS = 64
+MAX_BITVEC = MAX_BITS * MAX_LANES
 
 
 def int_log2(x):
@@ -171,13 +172,16 @@ class TypeSet(object):
                   widths.
     """
 
-    def __init__(self, lanes=None, ints=None, floats=None, bools=None):
+    def __init__(self, lanes=None, ints=None, floats=None, bools=None,
+                 bitvecs=None):
         # type: (BoolInterval, BoolInterval, BoolInterval, BoolInterval) -> None # noqa
         self.lanes = interval_to_set(decode_interval(lanes, (1, MAX_LANES), 1))
         self.ints = interval_to_set(decode_interval(ints, (8, MAX_BITS)))
         self.floats = interval_to_set(decode_interval(floats, (32, 64)))
         self.bools = interval_to_set(decode_interval(bools, (1, MAX_BITS)))
         self.bools = set(filter(legal_bool, self.bools))
+        self.bitvecs = interval_to_set(decode_interval(bitvecs,
+                                                       (1, MAX_BITVEC)))
 
     def copy(self):
         # type: (TypeSet) -> TypeSet
@@ -193,7 +197,8 @@ class TypeSet(object):
         return (tuple(sorted(list(self.lanes))),
                 tuple(sorted(list(self.ints))),
                 tuple(sorted(list(self.floats))),
-                tuple(sorted(list(self.bools))))
+                tuple(sorted(list(self.bools))),
+                tuple(sorted(list(self.bitvecs))))
 
     def __hash__(self):
         # type: () -> int
@@ -222,11 +227,14 @@ class TypeSet(object):
             s += ', floats={}'.format(pp_set(self.floats))
         if len(self.bools) > 0:
             s += ', bools={}'.format(pp_set(self.bools))
+        if len(self.bitvecs) > 0:
+            s += ', bitvecs={}'.format(pp_set(self.bitvecs))
         return s + ')'
 
     def emit_fields(self, fmt):
         # type: (Formatter) -> None
         """Emit field initializers for this typeset."""
+        assert len(self.bitvecs) == 0, "Bitvector types are not emitable."
         fmt.comment(repr(self))
 
         fields = (('lanes', 16),
@@ -262,6 +270,7 @@ class TypeSet(object):
         self.ints.intersection_update(other.ints)
         self.floats.intersection_update(other.floats)
         self.bools.intersection_update(other.bools)
+        self.bitvecs.intersection_update(other.bitvecs)
 
         return self
 
@@ -273,13 +282,15 @@ class TypeSet(object):
         return self.lanes.issubset(other.lanes) and \
             self.ints.issubset(other.ints) and \
             self.floats.issubset(other.floats) and \
-            self.bools.issubset(other.bools)
+            self.bools.issubset(other.bools) and \
+            self.bitvecs.issubset(other.bitvecs)
 
     def lane_of(self):
         # type: () -> TypeSet
         """
         Return a TypeSet describing the image of self across lane_of
         """
+        assert len(self.bitvecs) == 0
         new = self.copy()
         new.lanes = set([1])
         return new
@@ -289,6 +300,7 @@ class TypeSet(object):
         """
         Return a TypeSet describing the image of self across as_bool
         """
+        assert len(self.bitvecs) == 0
         new = self.copy()
         new.ints = set()
         new.floats = set()
@@ -305,6 +317,7 @@ class TypeSet(object):
         """
         Return a TypeSet describing the image of self across halfwidth
         """
+        assert len(self.bitvecs) == 0
         new = self.copy()
         new.ints = set([x//2 for x in self.ints if x > 8])
         new.floats = set([x//2 for x in self.floats if x > 32])
@@ -317,6 +330,7 @@ class TypeSet(object):
         """
         Return a TypeSet describing the image of self across doublewidth
         """
+        assert len(self.bitvecs) == 0
         new = self.copy()
         new.ints = set([x*2 for x in self.ints if x < MAX_BITS])
         new.floats = set([x*2 for x in self.floats if x < MAX_BITS])
@@ -330,6 +344,7 @@ class TypeSet(object):
         """
         Return a TypeSet describing the image of self across halfvector
         """
+        assert len(self.bitvecs) == 0
         new = self.copy()
         new.lanes = set([x//2 for x in self.lanes if x > 1])
 
@@ -340,8 +355,27 @@ class TypeSet(object):
         """
         Return a TypeSet describing the image of self across doublevector
         """
+        assert len(self.bitvecs) == 0
         new = self.copy()
         new.lanes = set([x*2 for x in self.lanes if x < MAX_LANES])
+
+        return new
+
+    def to_bitvec(self):
+        # type: () -> TypeSet
+        """
+        Return a TypeSet describing the image of self across to_bitvec
+        """
+        assert len(self.bitvecs) == 0
+        all_scalars = self.ints.union(self.floats.union(self.bools))
+
+        new = self.copy()
+        new.lanes = set([1])
+        new.ints = set()
+        new.bools = set()
+        new.floats = set()
+        new.bitvecs = set([lane_w * nlanes for lane_w in all_scalars
+                           for nlanes in self.lanes])
 
         return new
 
@@ -362,6 +396,8 @@ class TypeSet(object):
             return self.half_vector()
         elif (func == TypeVar.DOUBLEVECTOR):
             return self.double_vector()
+        elif (func == TypeVar.TOBITVEC):
+            return self.to_bitvec()
         else:
             assert False, "Unknown derived function: " + func
 
@@ -375,10 +411,12 @@ class TypeSet(object):
             return self
 
         if (func == TypeVar.LANEOF):
+            assert len(self.bitvecs) == 0
             new = self.copy()
             new.lanes = set([2**i for i in range(0, int_log2(MAX_LANES)+1)])
             return new
         elif (func == TypeVar.ASBOOL):
+            assert len(self.bitvecs) == 0
             new = self.copy()
 
             if 1 not in self.bools:
@@ -393,12 +431,16 @@ class TypeSet(object):
 
             return new
         elif (func == TypeVar.HALFWIDTH):
+            assert len(self.bitvecs) == 0
             return self.double_width()
         elif (func == TypeVar.DOUBLEWIDTH):
+            assert len(self.bitvecs) == 0
             return self.half_width()
         elif (func == TypeVar.HALFVECTOR):
+            assert len(self.bitvecs) == 0
             return self.double_vector()
         elif (func == TypeVar.DOUBLEVECTOR):
+            assert len(self.bitvecs) == 0
             return self.half_vector()
         else:
             assert False, "Unknown derived function: " + func
@@ -409,7 +451,7 @@ class TypeSet(object):
         Return the number of concrete types represented by this typeset
         """
         return len(self.lanes) * (len(self.ints) + len(self.floats) +
-                                  len(self.bools))
+                                  len(self.bools) + len(self.bitvecs))
 
     def concrete_types(self):
         # type: () -> Iterable[types.ValueType]
@@ -427,6 +469,8 @@ class TypeSet(object):
                 yield by(types.FloatType.with_bits(bits), nlanes)
             for bits in self.bools:
                 yield by(types.BoolType.with_bits(bits), nlanes)
+            for bits in self.bitvecs:
+                yield by(types.BVType.with_bits(bits), nlanes)
 
     def get_singleton(self):
         # type: () -> types.ValueType
@@ -558,6 +602,7 @@ class TypeVar(object):
     DOUBLEWIDTH = 'double_width'
     HALFVECTOR = 'half_vector'
     DOUBLEVECTOR = 'double_vector'
+    TOBITVEC = 'to_bitvec'
 
     @staticmethod
     def is_bijection(func):
@@ -667,6 +712,14 @@ class TypeVar(object):
         lanes as this one, with the same lane type.
         """
         return TypeVar.derived(self, self.DOUBLEVECTOR)
+
+    def to_bitvec(self):
+        # type: () -> TypeVar
+        """
+        Return a derived type variable that represent a flat bitvector with
+        the same size as self
+        """
+        return TypeVar.derived(self, self.TOBITVEC)
 
     def singleton_type(self):
         # type: () -> ValueType
