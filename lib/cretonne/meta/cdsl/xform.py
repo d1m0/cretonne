@@ -77,8 +77,8 @@ class XForm(object):
     )
     """
 
-    def __init__(self, src, dst):
-        # type: (Rtl, Rtl) -> None
+    def __init__(self, src, dst, constraints=None):
+        # type: (Rtl, Rtl, Optional[Iterable[TypeConstraint]]) -> None
         self.src = src
         self.dst = dst
         # Variables that are inputs to the source pattern.
@@ -108,7 +108,14 @@ class XForm(object):
                         self.inputs[num_src_inputs:]))
 
         # Perform type inference and cleanup
-        raw_ti = get_type_env(ti_xform(self, TypeEnv()))
+        typenv = TypeEnv()
+        if constraints is None:
+            constraints = []
+
+        for c in constraints:
+            typenv.add_constraint(c)
+
+        raw_ti = get_type_env(ti_xform(self, typenv))
         raw_ti.normalize()
         self.ti = raw_ti.extract()
 

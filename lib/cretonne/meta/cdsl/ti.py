@@ -243,11 +243,8 @@ class SameWidth(TypeConstraint):
         ts1 = self.tv1.get_typeset()
         ts2 = self.tv2.get_typeset()
 
-        bv_intersection_ts = ts1.to_bitvec()
-        bv_intersection_ts &= ts2.to_bitvec()
-
         # Trivially False
-        if bv_intersection_ts.size() == 0:
+        if len(ts1.widths().intersection(ts2.widths())) == 0:
             return True
 
         return self.is_concrete()
@@ -543,6 +540,10 @@ class TypeEnv(object):
             elif isinstance(constr, WiderOrEq):
                 assert constr.tv1 in nodes and constr.tv2 in nodes
                 edges.add((constr.tv1, constr.tv2, "dashed", "forward", ">="))
+            elif isinstance(constr, SameWidth):
+                assert constr.tv1 in nodes and constr.tv2 in nodes
+                edges.add((constr.tv1, constr.tv2, "dashed", "none",
+                           "same_width"))
             else:
                 assert False, "Can't display constraint {}".format(constr)
 
@@ -685,6 +686,7 @@ def unify(tv1, tv2, typ):
     Unify tv1 and tv2 in the current type environment typ, and return an
     updated type environment or error.
     """
+    print ("unify({}, {})".format(tv1, tv2))
     tv1 = normalize_tv(typ[tv1])
     tv2 = normalize_tv(typ[tv2])
 
@@ -726,6 +728,7 @@ def ti_def(definition, typ):
     in the Def's instruction's signature, and unifying the formal tv with the
     corresponding actual tv.
     """
+    print ("ti_def({})".format(definition))
     expr = definition.expr
     inst = expr.inst
 
