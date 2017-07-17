@@ -89,7 +89,10 @@ class ScalarType(ValueType):
         self._vectors = dict()  # type: Dict[int, VectorType]
         # Assign numbers starting from 1. (0 is VOID).
         ValueType.all_scalars.append(self)
-        self.number = len(ValueType.all_scalars)
+        # Numbers are only valid for Cretone types that get emitted to Rust.
+        # This excludes BVTypes
+        self.number = len([x for x in ValueType.all_scalars
+                           if not isinstance(x, BVType)])
         assert self.number < 16, 'Too many scalar types'
 
     def __repr__(self):

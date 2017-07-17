@@ -11,11 +11,12 @@ try:
         from .ast import Expr, Apply  # noqa
         from .typevar import TypeVar  # noqa
         from .ti import TypeConstraint  # noqa
-        from .xform import XForm # noqa
+        from .xform import XForm
         # List of operands for ins/outs:
         OpList = Union[Sequence[Operand], Operand]
         ConstrList = Union[Sequence[TypeConstraint], TypeConstraint]
         MaybeBoundInst = Union['Instruction', 'BoundInstruction']
+        InstructionSemantics = Union[XForm, List[XForm]]
 except ImportError:
     pass
 
@@ -118,7 +119,7 @@ class Instruction(object):
         self.outs = self._to_operand_tuple(outs)
         self.constraints = self._to_constraint_tuple(constraints)
         self.format = InstructionFormat.lookup(self.ins, self.outs)
-        self.semantics = None  # type: XForm
+        self.semantics = None  # type: InstructionSemantics
 
         # Opcode number, assigned by gen_instr.py.
         self.number = None  # type: int
@@ -333,6 +334,37 @@ class Instruction(object):
         """
         from .ast import Apply  # noqa
         return Apply(self, args)
+
+    def set_semantics(self, sem):
+        # type: (InstructionSemantics) -> None
+        """
+        Set our semantics. An instruction semantic is a set of XForms s.t.:
+            1) Each XForm has a single instance of self as its src rtl
+            2) For any possible concrete typing of self, there is exactly one
+               XForm X that applies to it.
+        """
+        from .ti import ti_rtl, TypeEnv, get_type_env
+
+        if not isinstance(sem, list):
+            sem = [sem]
+
+        # 1) The source rtl is always a single instance of self
+        for xform in sem:
+            assert len(xform.src.rtl) == 1 and\
+                xform.src.rtl[0].expr.inst == self,\
+                "XForm {} doesn't describe instruction {}."\
+                .format(xform, self)
+
+        # 2) Any possible typing for the instruction should be covered by
+        #    exactly ONE semantic XForm
+        typenv = get_type_env(ti_rtl(sem[0].src, TypeEnv()))
+        for t in typenv.concrete_typings():
+            matching_xforms = [x for x in sem if x.ti.permits(t)]
+            assert len(matching_xforms) == 1,\
+                ("Possible typing {} of {} not matched by exactly one case " +
+                 ": {}").format(t, self, matching_xforms)
+
+        self.semantics = sem
 
 
 class BoundInstruction(object):

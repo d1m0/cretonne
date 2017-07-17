@@ -125,24 +125,6 @@ def legal_bool(bits):
         (bits >= 8 and bits <= MAX_BITS and is_power_of_two(bits))
 
 
-def legal_int(bits):
-    # type: (int) -> bool
-    """
-    True iff bits is a legal bit width for an int type.
-    bits \in { 8, 16, .. MAX_BITS }
-    """
-    return (bits >= 8 and bits <= MAX_BITS and is_power_of_two(bits))
-
-
-def legal_float(bits):
-    # type: (int) -> bool
-    """
-    True iff bits is a legal bit width for a float type.
-    bits \in { 32, 64 }
-    """
-    return bits in [32, 64]
-
-
 class TypeSet(object):
     """
     A set of types.
@@ -320,7 +302,6 @@ class TypeSet(object):
         """
         Return a TypeSet describing the image of self across as_bool
         """
-        assert len(self.bitvecs) == 0
         new = self.copy()
         new.ints = set()
         new.floats = set()
@@ -452,10 +433,8 @@ class TypeSet(object):
 
             return new
         elif (func == TypeVar.HALFWIDTH):
-            new = self.copy()
-            return new.double_width()
+            return self.double_width()
         elif (func == TypeVar.DOUBLEWIDTH):
-            new = self.copy()
             return self.half_width()
         elif (func == TypeVar.HALFVECTOR):
             new = self.copy()
@@ -487,8 +466,8 @@ class TypeSet(object):
                     if i * l in self.bitvecs:
                         has_t.add(('f', i, l))
 
-            for (t, width, lanes) in has_t:
-                new.lanes.add(lanes)
+            for (t, width, lane) in has_t:
+                new.lanes.add(lane)
                 if (t == 'i'):
                     new.ints.add(width)
                 elif (t == 'b'):

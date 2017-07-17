@@ -54,8 +54,8 @@ class TypeConstraint(object):
         """
         Return true iff all typevars in the constraint are singletons.
         """
-        tvs = filter(lambda x:  isinstance(x, TypeVar), self._args())
-        return [] == list(filter(lambda x:  x.singleton_type() is None, tvs))
+        return [] == list(filter(lambda x:  x.singleton_type() is None,
+                                 self.tvs()))
 
     def __hash__(self):
         # type: () -> int
@@ -68,6 +68,13 @@ class TypeConstraint(object):
         this object.
         """
         assert False, "Abstract"
+
+    def tvs(self):
+        # type: () -> Iterable[TypeVar]
+        """
+        Return the typevars contained in this constraint.
+        """
+        return filter(lambda x:  isinstance(x, TypeVar), self._args())
 
     def is_trivial(self):
         # type: () -> bool
@@ -283,6 +290,7 @@ class TypeEnv(object):
         # type: (Optional[Tuple[TypeMap, List[TypeConstraint]]]) -> None
         self.ranks = {}  # type: Dict[TypeVar, int]
         self.vars = set()  # type: Set[Var]
+        self.symtab = {}  # type: Dict[str, Var]
 
         if arg is None:
             self.type_map = {}  # type: TypeMap
@@ -293,11 +301,13 @@ class TypeEnv(object):
         self.idx = 0
 
     def __getitem__(self, arg):
-        # type: (Union[TypeVar, Var]) -> TypeVar
+        # type: (Union[TypeVar, Var, str]) -> TypeVar
         """
-        Lookup the canonical representative for a Var/TypeVar.
+        Lookup the canonical representative for a Var name/Var/TypeVar.
         """
-        if (isinstance(arg, Var)):
+        if (isinstance(arg, str)):
+            tv = self.symtab[arg].get_typevar()
+        elif (isinstance(arg, Var)):
             tv = arg.get_typevar()
         else:
             assert (isinstance(arg, TypeVar))
@@ -331,8 +341,16 @@ class TypeEnv(object):
         """
         Add a new constraint
         """
-        if (constr not in self.constraints):
-            self.constraints.append(constr)
+        if (constr in self.constraints):
+            return
+
+        # InTypeset constraints can be expressed by constraining the typeset of
+        # a variable. No need to add them to self.constraints
+        if (isinstance(constr, InTypeset)):
+            self[constr.tv].constrain_types_by_ts(constr.ts)
+            return
+
+        self.constraints.append(constr)
 
     def get_uid(self):
         # type: () -> str
@@ -363,6 +381,7 @@ class TypeEnv(object):
         for v, which is used to impose a partial order on type variables.
         """
         self.vars.add(v)
+        self.symtab[str(v)] = v
 
         if v.is_input():
             r = TypeEnv.RANK_INPUT
@@ -474,6 +493,7 @@ class TypeEnv(object):
         # ranks and vars contain only TVs associated with real vars
         t.ranks = copy(self.ranks)
         t.vars = copy(self.vars)
+        t.symtab = {str(v): v for v in t.vars}
         return t
 
     def concrete_typings(self):
@@ -504,6 +524,35 @@ class TypeEnv(object):
                 continue
 
             yield concrete_var_map
+
+    def permits(self, concrete_typing):
+        # type: (VarMap) -> bool
+        """
+        Return true iff this TypeEnv permits the (possibly partial) concrete
+        variable type mapping concrete_typing.
+        """
+        # Each variable has a concrete type, that is a subset of its inferred
+        # typeset.
+        for (v, typ) in concrete_typing.items():
+            assert typ.singleton_type() is not None
+            if not typ.get_typeset().issubset(self[str(v)].get_typeset()):
+                return False
+
+        m = {self[str(v)]: typ for (v, typ) in concrete_typing.items()}
+
+        # Constraints involving vars in concrete_typing are satisfied
+        for constr in self.constraints:
+            try:
+                # If the constraint includes only vars in concrete_typing, we
+                # can translate it using m. Otherwise we encounter a KeyError
+                # and ignore it
+                constr = constr.translate(m)
+                if not constr.eval():
+                    return False
+            except KeyError:
+                pass
+
+        return True
 
     def dot(self):
         # type: () -> str
@@ -686,7 +735,6 @@ def unify(tv1, tv2, typ):
     Unify tv1 and tv2 in the current type environment typ, and return an
     updated type environment or error.
     """
-    print ("unify({}, {})".format(tv1, tv2))
     tv1 = normalize_tv(typ[tv1])
     tv2 = normalize_tv(typ[tv2])
 
@@ -728,7 +776,6 @@ def ti_def(definition, typ):
     in the Def's instruction's signature, and unifying the formal tv with the
     corresponding actual tv.
     """
-    print ("ti_def({})".format(definition))
     expr = definition.expr
     inst = expr.inst
 

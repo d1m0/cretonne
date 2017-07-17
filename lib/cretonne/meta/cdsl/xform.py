@@ -7,7 +7,10 @@ from .ti import ti_xform, TypeEnv, get_type_env
 
 try:
     from typing import Union, Iterator, Sequence, Iterable, List, Dict  # noqa
+    from typing import Optional  # noqa
     from .ast import Expr  # noqa
+    from .ti import TypeConstraint  # noqa
+    from .typevar import TypeVar  # noqa
     DefApply = Union[Def, Apply]
 except ImportError:
     pass
@@ -78,7 +81,7 @@ class XForm(object):
     """
 
     def __init__(self, src, dst, constraints=None):
-        # type: (Rtl, Rtl, Optional[Iterable[TypeConstraint]]) -> None
+        # type: (Rtl, Rtl, Optional[Sequence[TypeConstraint]]) -> None
         self.src = src
         self.dst = dst
         # Variables that are inputs to the source pattern.
@@ -108,16 +111,21 @@ class XForm(object):
                         self.inputs[num_src_inputs:]))
 
         # Perform type inference and cleanup
-        typenv = TypeEnv()
-        if constraints is None:
-            constraints = []
-
-        for c in constraints:
-            typenv.add_constraint(c)
-
-        raw_ti = get_type_env(ti_xform(self, typenv))
+        raw_ti = get_type_env(ti_xform(self, TypeEnv()))
         raw_ti.normalize()
         self.ti = raw_ti.extract()
+
+        def interp_tv(tv):
+            # type: (TypeVar) -> TypeVar
+            """ Convert typevars according to symtab """
+            if not tv.name.startswith("typeof_"):
+                return tv
+            return symtab[tv.name[len("typeof_"):]].get_typevar()
+
+        if constraints is not None:
+            for c in constraints:
+                type_m = {tv: interp_tv(tv) for tv in c.tvs()}
+                self.ti.add_constraint(c.translate(type_m).translate(self.ti))
 
         # Sanity: The set of inferred free typevars should be a subset of the
         # TVs corresponding to Vars appearing in src
