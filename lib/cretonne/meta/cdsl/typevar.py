@@ -8,6 +8,7 @@ from __future__ import absolute_import
 import math
 from . import types, is_power_of_two
 from copy import deepcopy
+from .types import VectorType, IntType, BoolType, FloatType, ScalarType
 
 try:
     from typing import Tuple, Union, Iterable, Any, Set, TYPE_CHECKING # noqa
@@ -427,6 +428,26 @@ class TypeSet(object):
                 yield by(types.FloatType.with_bits(bits), nlanes)
             for bits in self.bools:
                 yield by(types.BoolType.with_bits(bits), nlanes)
+
+    def contains(self, typ):
+        # type: (ValueType) -> bool
+        if typ.lane_count() not in self.lanes:
+            return False
+
+        if isinstance(typ, VectorType):
+            lane_type = typ.base
+        else:
+            assert isinstance(typ, ScalarType)
+            lane_type = typ
+
+        if (isinstance(lane_type, IntType)):
+            return typ.lane_bits() in self.ints
+        if (isinstance(lane_type, FloatType)):
+            return typ.lane_bits() in self.floats
+        if (isinstance(lane_type, BoolType)):
+            return typ.lane_bits() in self.bools
+
+        assert False, "Unknown type {}".format(typ)
 
     def get_singleton(self):
         # type: () -> types.ValueType
