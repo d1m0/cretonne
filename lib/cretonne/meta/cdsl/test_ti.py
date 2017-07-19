@@ -13,83 +13,33 @@ from unittest import TestCase
 from functools import reduce
 
 try:
-    from .ti import TypeMap, ConstraintList, VarMap, TypingOrError # noqa
+    from .ti import TypeMap, TypeConstraint, VarMap, TypingOrError # noqa
     from typing import List, Dict, Tuple, TYPE_CHECKING, cast # noqa
 except ImportError:
     TYPE_CHECKING = False
 
 
-def agree(me, other):
-    # type: (TypeEnv, TypeEnv) -> bool
-    """
-    Given TypeEnvs me and other, check if they agree. As part of that build
-    a map m from TVs in me to their corresponding TVs in other.
-    Specifically:
-
-        1. Check that all TVs that are keys in me.type_map are also defined
-           in other.type_map
-
-        2. For any tv in me.type_map check that:
-            me[tv].get_typeset() == other[tv].get_typeset()
-
-        3. Set m[me[tv]] = other[tv] in the substitution m
-
-        4. If we find another tv1 such that me[tv1] == me[tv], assert that
-           other[tv1] == m[me[tv1]] == m[me[tv]] = other[tv]
-
-        5. Check that me and other have the same constraints under the
-           substitution m
-    """
-    m = {}  # type: TypeMap
-    # Check that our type map and other's agree and built substitution m
-    for tv in me.type_map:
-        if (me[tv] not in m):
-            m[me[tv]] = other[tv]
-            if me[tv].get_typeset() != other[tv].get_typeset():
-                return False
-        else:
-            if m[me[tv]] != other[tv]:
-                return False
-
-    # Translate our constraints using m, and sort
-    me_equiv_constr = sorted([constr.translate(m)
-                              for constr in me.constraints], key=repr)
-    # Sort other's constraints
-    other_equiv_constr = sorted([constr.translate(other)
-                                 for constr in other.constraints], key=repr)
-    return me_equiv_constr == other_equiv_constr
-
-
-def check_typing(got_or_err, expected, symtab=None):
-    # type: (TypingOrError, Tuple[VarMap, ConstraintList], Dict[str, Var]) -> None # noqa
+def check_typing(got_or_err, expected, got_symtab=None):
+    # type: (TypingOrError, Tuple[VarMap, List[TypeConstraint]], Dict[str, Var]) -> None # noqa
     """
     Check that a the typing we received (got_or_err) complies with the
-    expected typing (expected). If symtab is specified, substitute the Vars in
-    expected using symtab first (used when checking type inference on XForms)
+    expected typing (expected)
     """
-    (m, c) = expected
-    got = get_type_env(got_or_err)
+    (var_m, constr) = expected
+    typ_m = {v.get_typevar(): tv for (v, tv) in var_m.items()}
+    expected_typ = TypeEnv((typ_m, constr, set(var_m.keys())))
+    got_typ = get_type_env(got_or_err)
 
-    if (symtab is not None):
-        # For xforms we first need to re-write our TVs in terms of the tvs
-        # stored internally in the XForm. Use the symtab passed
-        subst_m = {k.get_typevar(): symtab[str(k)].get_typevar()
-                   for k in m.keys()}
-        # Convert m from a Var->TypeVar map to TypeVar->TypeVar map where
-        # the key TypeVar is re-written to its XForm internal version
-        tv_m = {subst(k.get_typevar(), subst_m): v for (k, v) in m.items()}
-        # Rewrite the TVs in the input constraints to their XForm internal
-        # versions
-        c = [constr.translate(subst_m) for constr in c]
+    if got_symtab is not None:
+        exp_symtab = {str(v): v for v in var_m.keys()}
+        assert set(exp_symtab) == set(got_symtab)
+        vartab = {got_symtab[v]: exp_symtab[v] for v in got_symtab.keys()}  # type: Dict[Var, Var] # noqa
     else:
-        # If no symtab, just convert m from Var->TypeVar map to a
-        # TypeVar->TypeVar map
-        tv_m = {k.get_typevar(): v for (k, v) in m.items()}
+        vartab = {v: v for v in got_typ.vars}
 
-    expected_typ = TypeEnv((tv_m, c))
-    assert agree(expected_typ, got), \
-        "typings disagree:\n {} \n {}".format(got.dot(),
-                                              expected_typ.dot())
+    # Make sure that the set of concrete typings of got is a subset of the set
+    # of concrete typings of expected
+    assert got_typ.agree(expected_typ, vartab)
 
 
 def check_concrete_typing_rtl(var_types, rtl):
@@ -307,6 +257,7 @@ class TestRTL(TypeCheckingBaseTest):
         }, []))
 
     def test_fully_bound_inst_inference_bad(self):
+        # type: () -> None
         # Incompatible bound instructions fail accordingly
         r = Rtl(
                 self.v3 << uextend.i32(self.v1),
@@ -329,7 +280,7 @@ class TestRTL(TypeCheckingBaseTest):
             self.v3 << sextend(self.v2),
         )
         ti = TypeEnv()
-        typing = ti_rtl(r, ti)
+        typing = get_type_env(ti_rtl(r, ti))
         typing = typing.extract()
 
         itype0 = TypeVar("t", "", ints=True, simd=(1, 256))
@@ -353,7 +304,7 @@ class TestRTL(TypeCheckingBaseTest):
                 self.v1 << op(self.v0),
             )
             ti = TypeEnv()
-            typing = ti_rtl(r, ti).extract()
+            typing = get_type_env(ti_rtl(r, ti)).extract()
 
             # The number of possible typings is 9 * (3+ 2*2 + 3) = 90
             l = [(t[self.v0], t[self.v1]) for t in typing.concrete_typings()]
@@ -373,7 +324,7 @@ class TestRTL(TypeCheckingBaseTest):
         )
         ti = TypeEnv()
         typing = ti_rtl(r, ti)
-        typing = typing.extract()
+        typing = get_type_env(typing).extract()
 
         ftype0 = TypeVar("t", "", floats=True, simd=(1, 256))
         ftype1 = TypeVar("t1", "", floats=True, simd=(1, 256))
@@ -393,7 +344,7 @@ class TestRTL(TypeCheckingBaseTest):
                 self.v1 << op(self.v0),
             )
             ti = TypeEnv()
-            typing = ti_rtl(r, ti).extract()
+            typing = get_type_env(ti_rtl(r, ti)).extract()
 
             # The number of possible typings is 9*(2 + 1) = 27
             l = [(t[self.v0], t[self.v1]) for t in typing.concrete_typings()]
@@ -518,6 +469,7 @@ class TestXForm(TypeCheckingBaseTest):
                 check_concrete_typing_xform(concrete_typing, xform)
 
     def test_bound_inst_inference(self):
+        # type: () -> None
         # First example from issue #26
         x = XForm(
             Rtl(
@@ -542,6 +494,7 @@ class TestXForm(TypeCheckingBaseTest):
         }, [WiderOrEq(i32t, itype)]), x.symtab)
 
     def test_bound_inst_inference1(self):
+        # type: () -> None
         # Second example taken from issue #26
         x = XForm(
             Rtl(
@@ -566,6 +519,7 @@ class TestXForm(TypeCheckingBaseTest):
         }, [WiderOrEq(i32t, itype)]), x.symtab)
 
     def test_fully_bound_inst_inference(self):
+        # type: () -> None
         # Second example taken from issue #26 with complete bounds
         x = XForm(
             Rtl(
@@ -591,6 +545,7 @@ class TestXForm(TypeCheckingBaseTest):
         }, []), x.symtab)
 
     def test_fully_bound_inst_inference_bad(self):
+        # type: () -> None
         # Can't force a mistyped XForm using bound instructions
         with self.assertRaises(AssertionError):
             XForm(

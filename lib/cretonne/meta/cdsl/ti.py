@@ -13,9 +13,12 @@ try:
     from .xform import Rtl, XForm # noqa
     from .ast import Expr # noqa
     from .typevar import TypeSet # noqa
+    from .types import ValueType # noqa
     if TYPE_CHECKING:
         TypeMap = Dict[TypeVar, TypeVar]
         VarMap = Dict[Var, TypeVar]
+        Symtab = Dict[str, Var]
+        VarTab = Dict[Var, Var]
 except ImportError:
     TYPE_CHECKING = False
     pass
@@ -239,15 +242,15 @@ class TypeEnv(object):
     RANK_INTERNAL = 0
 
     def __init__(self, arg=None):
-        # type: (Optional[Tuple[TypeMap, List[TypeConstraint]]]) -> None
+        # type: (Optional[Tuple[TypeMap, List[TypeConstraint], Set[Var]]]) -> None # noqa
         self.ranks = {}  # type: Dict[TypeVar, int]
-        self.vars = set()  # type: Set[Var]
 
         if arg is None:
             self.type_map = {}  # type: TypeMap
             self.constraints = []  # type: List[TypeConstraint]
+            self.vars = set()  # type: Set[Var]
         else:
-            self.type_map, self.constraints = arg
+            self.type_map, self.constraints, self.vars = arg
 
         self.idx = 0
 
@@ -257,6 +260,7 @@ class TypeEnv(object):
         Lookup the canonical representative for a Var/TypeVar.
         """
         if (isinstance(arg, Var)):
+            assert arg in self.vars
             tv = arg.get_typevar()
         else:
             assert (isinstance(arg, TypeVar))
@@ -482,22 +486,31 @@ class TypeEnv(object):
         nodes = set([v.get_typevar() for v in self.vars])  # type: Set[TypeVar]
         edges = set()  # type: Set[Tuple[TypeVar, TypeVar, str, str, Optional[str]]] # noqa
 
-        for (k, v) in self.type_map.items():
-            # Add all intermediate TVs appearing in edges
-            nodes.add(k)
+        def add_node(v):
+            # type: (TypeVar) -> None
+            if v in nodes:
+                return
+
             nodes.add(v)
-            edges.add((k, v, "dotted", "forward", None))
             while (v.is_derived):
                 nodes.add(v.base)
                 edges.add((v, v.base, "solid", "forward", v.derived_func))
                 v = v.base
 
+        for (k, v) in self.type_map.items():
+            # Add all intermediate TVs appearing in edges
+            add_node(k)
+            add_node(v)
+            edges.add((k, v, "dotted", "forward", None))
+
         for constr in self.constraints:
             if isinstance(constr, TypesEqual):
-                assert constr.tv1 in nodes and constr.tv2 in nodes
+                add_node(constr.tv1)
+                add_node(constr.tv2)
                 edges.add((constr.tv1, constr.tv2, "dashed", "none", "equal"))
             elif isinstance(constr, WiderOrEq):
-                assert constr.tv1 in nodes and constr.tv2 in nodes
+                add_node(constr.tv1)
+                add_node(constr.tv2)
                 edges.add((constr.tv1, constr.tv2, "dashed", "forward", ">="))
             else:
                 assert False, "Can't display constraint {}".format(constr)
@@ -524,6 +537,86 @@ class TypeEnv(object):
         r += "}"
 
         return r
+
+    def agree(self, other, vartab):
+        # type: (TypeEnv, Optional[VarTab]) -> bool
+        """
+        Return True iff the TypeEnv self agrees with other, assuming variable
+        substitution vartab.  Formally if self agres with other, than every
+        concrete typing of self is a concrete typing of other (modulo variable
+        subst by vartab).
+
+        There are 4 sufficient conditions:
+
+        0) vartab is a bijection from self.vars to other.vars
+        1) For every Var v, self[v].issubset(other[vartab[v]])
+        2) If other[vartab[v1]]==other[vartab[v2]] then self[v1]==self[v2]
+        3) The set of constraints in other is a subset of the set of
+           constraints in self.
+        """
+        # 0) Vartab is a bijection from self.vars -> other.vars
+        if vartab is not None:
+            if (len(self.vars) != len(other.vars)):
+                return False
+
+            if set(vartab.keys()) != self.vars or\
+               set(vartab.values()) != other.vars:
+                return False
+
+        # 1) For every Var v,
+        #      self[v].get_typeset().issubset(other[vartab[v]].get_typeset())
+        # 2) If other[vartab[v1]]==other[vartab[v2]] then self[v1]==self[v2]
+        m = {}  # type: TypeMap
+        for (self_v, other_v) in vartab.items():
+            self_tv = self[self_v]
+            other_tv = other[other_v]
+            if (not self_tv.get_typeset().issubset(other_tv.get_typeset())):
+                return False
+
+            if (other_tv not in m):
+                m[other_tv] = self_tv
+            else:
+                # This var maps to an already seen TV in other. Check
+                # corresponding variable maps in self
+                if self_tv != m[other_tv]:
+                    return False
+
+        # 3) The set of constraints in other is a subset of the set of
+        #    constraints in self.
+        transl_constraints = set(c.translate(m) for c in other.constraints)
+        if (not set(transl_constraints).issubset(set(self.constraints))):
+            return False
+
+        return True
+
+    def permits(self, concrete_typing):
+        # type: (VarMap) -> bool
+        """
+        Return true iff this TypeEnv permits the (possibly partial) concrete
+        variable type mapping concrete_typing.
+        """
+        # Each variable has a concrete type, that is a subset of its inferred
+        # typeset.
+        for (v, typ) in concrete_typing.items():
+            assert typ.singleton_type() is not None
+            if not typ.get_typeset().issubset(self[v].get_typeset()):
+                return False
+
+        m = {self[v]: typ for (v, typ) in concrete_typing.items()}
+
+        # Constraints involving vars in concrete_typing are satisfied
+        for constr in self.constraints:
+            try:
+                # If the constraint includes only vars in concrete_typing, we
+                # can translate it using m. Otherwise we encounter a KeyError
+                # and ignore it
+                constr = constr.translate(m)
+                if not constr.eval():
+                    return False
+            except KeyError:
+                pass
+
+        return True
 
 
 if TYPE_CHECKING:
