@@ -24,9 +24,7 @@ bva = Var('bva')
 bvlo = Var('bvlo')
 bvhi = Var('bvhi')
 
-RealTS = TypeSet(lanes=True, ints=True, floats=True, bools=True)
 ScalarTS = TypeSet(lanes=(1, 1), ints=True, floats=True, bools=True)
-BVTS = TypeSet(bitvecs=True)
 
 vsplit.set_semantics(
     XForm(Rtl((lo, hi) << vsplit(x)),
