@@ -15,7 +15,7 @@ try:
     from .typevar import TypeSet # noqa
     if TYPE_CHECKING:
         TypeMap = Dict[TypeVar, TypeVar]
-        VarMap = Dict[Var, TypeVar]
+        VarTyping = Dict[Var, TypeVar]
 except ImportError:
     TYPE_CHECKING = False
     pass
@@ -290,7 +290,6 @@ class TypeEnv(object):
         # type: (Optional[Tuple[TypeMap, List[TypeConstraint]]]) -> None
         self.ranks = {}  # type: Dict[TypeVar, int]
         self.vars = set()  # type: Set[Var]
-        self.symtab = {}  # type: Dict[str, Var]
 
         if arg is None:
             self.type_map = {}  # type: TypeMap
@@ -301,13 +300,12 @@ class TypeEnv(object):
         self.idx = 0
 
     def __getitem__(self, arg):
-        # type: (Union[TypeVar, Var, str]) -> TypeVar
+        # type: (Union[TypeVar, Var]) -> TypeVar
         """
         Lookup the canonical representative for a Var name/Var/TypeVar.
         """
-        if (isinstance(arg, str)):
-            tv = self.symtab[arg].get_typevar()
-        elif (isinstance(arg, Var)):
+        if (isinstance(arg, Var)):
+            assert arg in self.vars
             tv = arg.get_typevar()
         else:
             assert (isinstance(arg, TypeVar))
@@ -381,7 +379,6 @@ class TypeEnv(object):
         for v, which is used to impose a partial order on type variables.
         """
         self.vars.add(v)
-        self.symtab[str(v)] = v
 
         if v.is_input():
             r = TypeEnv.RANK_INPUT
@@ -493,11 +490,10 @@ class TypeEnv(object):
         # ranks and vars contain only TVs associated with real vars
         t.ranks = copy(self.ranks)
         t.vars = copy(self.vars)
-        t.symtab = {str(v): v for v in t.vars}
         return t
 
     def concrete_typings(self):
-        # type: () -> Iterable[VarMap]
+        # type: () -> Iterable[VarTyping]
         """
         Return an iterable over all possible concrete typings permitted by this
         TypeEnv.
@@ -526,7 +522,7 @@ class TypeEnv(object):
             yield concrete_var_map
 
     def permits(self, concrete_typing):
-        # type: (VarMap) -> bool
+        # type: (VarTyping) -> bool
         """
         Return true iff this TypeEnv permits the (possibly partial) concrete
         variable type mapping concrete_typing.
@@ -535,10 +531,10 @@ class TypeEnv(object):
         # typeset.
         for (v, typ) in concrete_typing.items():
             assert typ.singleton_type() is not None
-            if not typ.get_typeset().issubset(self[str(v)].get_typeset()):
+            if not typ.get_typeset().issubset(self[v].get_typeset()):
                 return False
 
-        m = {self[str(v)]: typ for (v, typ) in concrete_typing.items()}
+        m = {self[v]: typ for (v, typ) in concrete_typing.items()}
 
         # Constraints involving vars in concrete_typing are satisfied
         for constr in self.constraints:

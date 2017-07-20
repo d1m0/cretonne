@@ -585,6 +585,7 @@ class TypeVar(object):
         ints = None
         floats = None
         bools = None
+        bitvecs = None
 
         if isinstance(scalar, types.IntType):
             ints = (scalar.bits, scalar.bits)
@@ -592,10 +593,13 @@ class TypeVar(object):
             floats = (scalar.bits, scalar.bits)
         elif isinstance(scalar, types.BoolType):
             bools = (scalar.bits, scalar.bits)
+        elif isinstance(scalar, types.BVType):
+            bitvecs = (scalar.bits, scalar.bits)
 
         tv = TypeVar(
                 typ.name, typ.__doc__,
-                ints, floats, bools, simd=lanes)
+                ints=ints, floats=floats, bools=bools,
+                bitvecs=bitvecs, simd=lanes)
         return tv
 
     def __str__(self):

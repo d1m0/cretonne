@@ -7,8 +7,9 @@ from .formats import InstructionFormat
 
 try:
     from typing import Union, Sequence, List, Tuple, Any, TYPE_CHECKING  # noqa
+    from typing import Dict # noqa
     if TYPE_CHECKING:
-        from .ast import Expr, Apply  # noqa
+        from .ast import Expr, Apply, Var  # noqa
         from .typevar import TypeVar  # noqa
         from .ti import TypeConstraint  # noqa
         from .xform import XForm
@@ -16,7 +17,10 @@ try:
         OpList = Union[Sequence[Operand], Operand]
         ConstrList = Union[Sequence[TypeConstraint], TypeConstraint]
         MaybeBoundInst = Union['Instruction', 'BoundInstruction']
-        InstructionSemantics = Union[XForm, List[XForm]]
+        InstructionSemantics = List[XForm]
+        # This is the same as VarTyping in ti.py. Importing it from there
+        # directly causes a weird mypy error.
+        VarTyping = Dict[Var, TypeVar]
 except ImportError:
     pass
 
@@ -336,7 +340,7 @@ class Instruction(object):
         return Apply(self, args)
 
     def set_semantics(self, sem):
-        # type: (InstructionSemantics) -> None
+        # type: (Union[XForm, InstructionSemantics]) -> None
         """
         Set our semantics. An instruction semantic is a set of XForms s.t.:
             1) Each XForm has a single instance of self as its src rtl
@@ -348,7 +352,7 @@ class Instruction(object):
         if not isinstance(sem, list):
             sem = [sem]
 
-        # 1) The source rtl is always a single instance of self
+        # 1) The source rtl is always a single instance of self.
         for xform in sem:
             assert len(xform.src.rtl) == 1 and\
                 xform.src.rtl[0].expr.inst == self,\
@@ -357,9 +361,26 @@ class Instruction(object):
 
         # 2) Any possible typing for the instruction should be covered by
         #    exactly ONE semantic XForm
-        typenv = get_type_env(ti_rtl(sem[0].src, TypeEnv()))
+        inst_rtl = sem[0].src
+        typenv = get_type_env(ti_rtl(inst_rtl, TypeEnv()))
+
+        # This bit is awkward. Concrete typing is defined in terms of the vars
+        # of one Rtl. We arbitrarily picked that Rtl to be sem[0].src. For any
+        # other XForms in sem, we must build a substitution form
+        # sem[0].src->sem[N].src, before we can check if sem[N] permits one of
+        # the concrete typings of our Rtl.
+        # TODO: Can this be made cleaner?
+        subst = [inst_rtl.substitution(x.src, {}) for x in sem]
+        assert not any(x is None for x in subst)
+        sub_sem = list(zip(subst, sem))  # type: List[Tuple[Dict[Var, Var], XForm]] # noqa
+
+        def subst_typing(typing, sub):
+            # type: (VarTyping, Dict[Var, Var]) -> VarTyping
+            return {sub[v]: tv for (v, tv) in typing.items()}
+
         for t in typenv.concrete_typings():
-            matching_xforms = [x for x in sem if x.ti.permits(t)]
+            matching_xforms = [x for (s, x) in sub_sem
+                               if x.ti.permits(subst_typing(t, s))]
             assert len(matching_xforms) == 1,\
                 ("Possible typing {} of {} not matched by exactly one case " +
                  ": {}").format(t, self, matching_xforms)
