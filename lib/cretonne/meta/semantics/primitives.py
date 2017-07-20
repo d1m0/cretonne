@@ -54,7 +54,7 @@ bvsplit = Instruction(
 xy = Operand('xy', BV.double_width(),
              doc="A semantic value representing the concatenation of X and Y")
 bvconcat = Instruction(
-        'bvadd', r"""
+        'bvconcat', r"""
         """,
         ins=(x, y), outs=xy)
 

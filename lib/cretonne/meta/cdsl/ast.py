@@ -95,10 +95,15 @@ class Def(object):
         """ Return the set of all Vars that are defined by self"""
         return set(self.defs)
 
+    def uses(self):
+        # type: () -> Set[Var]
+        """ Return the set of all Vars that are used(read) by self"""
+        return set(self.expr.vars())
+
     def vars(self):
         # type: () -> Set[Var]
         """ Return the set of all Vars that appear in self"""
-        return set(self.defs).union(self.expr.vars())
+        return self.definitions().union(self.uses())
 
     def substitution(self, other, s):
         # type: (Def, VarMap) -> Optional[VarMap]

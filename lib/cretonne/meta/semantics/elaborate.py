@@ -1,10 +1,10 @@
-from .primitives import GROUP as PRIMITIVES
+from .primitives import GROUP as PRIMITIVES, prim_to_bv, prim_from_bv
 from cdsl.ti import ti_rtl, TypeEnv, get_type_env
 from cdsl.typevar import TypeVar
 import base.semantics  # noqa
 
 try:
-    from typing import TYPE_CHECKING, Dict, Union, List # noqa
+    from typing import TYPE_CHECKING, Dict, Union, List, Set, Tuple # noqa
     from cdsl.xform import Rtl, XForm # noqa
     from cdsl.ast import Var, Def, VarMap # noqa
     from cdsl.ti import VarTyping # noqa
@@ -46,7 +46,7 @@ def cleanup_concrete_rtl(r):
 
 
 def apply(r, x, suffix=None):
-    # type: (Rtl, XForm) -> Rtl
+    # type: (Rtl, XForm, str) -> Rtl
     """
     Given a concrete Rtl r and XForm x, s.t. r matches x.src, return the
     corresponding concrete x.dst. If suffix is provided, any temporary defs are
@@ -102,7 +102,6 @@ def elaborate(r):
             if (inst not in primitives):
                 transformed = apply(Rtl(d), find_matching_xform(d), str(idx))
                 idx += 1
-                # TODO: Get fresh variable names
                 new_defs.extend(transformed.rtl)
                 fp = False
             else:
@@ -111,3 +110,53 @@ def elaborate(r):
         r.rtl = tuple(new_defs)
 
     return r
+
+
+def cleanup_semantics(r, outputs):
+    # type: (Rtl, Set[Var]) -> Rtl
+    """
+    The elaboration process creates a lot of redundant instruction pairs of the
+    shape:
+
+        a.0 << prim_from_bv(bva.0)
+        ...
+        bva.1 << prim_to_bv(a.0)
+        ...
+
+    Contract these to ease manual inspection.
+    """
+    new_defs = []  # type: List[Def]
+    subst_m = {v: v for v in r.vars()}  # type: VarMap
+    definition = {}  # type: Dict[Var, Def]
+
+    # Pass 1: Remove redundant prim_to_bv
+    for d in r.rtl:
+        inst = d.expr.inst
+
+        if (inst == prim_to_bv):
+            if d.expr.args[0] in definition:
+                assert isinstance(d.expr.args[0], Var)
+                def_loc = definition[d.expr.args[0]]
+
+                if def_loc.expr.inst == prim_from_bv:
+                    assert isinstance(def_loc.expr.args[0], Var)
+                    subst_m[d.defs[0]] = def_loc.expr.args[0]
+                    continue
+
+        new_def = d.copy(subst_m)
+
+        for v in new_def.defs:
+            assert v not in definition  # Guaranteed by SSA
+            definition[v] = new_def
+
+        new_defs.append(new_def)
+
+    # Pass 2: Remove dead prim_from_bv
+    live = set(outputs)  # type: Set[Var]
+    for d in new_defs:
+        live = live.union(d.uses())
+
+    new_defs = [d for d in new_defs if not (d.expr.inst == prim_from_bv and
+                                            d.defs[0] not in live)]
+
+    return Rtl(*new_defs)
