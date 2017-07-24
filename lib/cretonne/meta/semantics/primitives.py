@@ -9,7 +9,7 @@ from __future__ import absolute_import
 from cdsl.operands import Operand
 from cdsl.typevar import TypeVar
 from cdsl.instructions import Instruction, InstructionGroup
-from cdsl.ti import SameWidth
+from base.immediates import imm64
 import base.formats # noqa
 
 GROUP = InstructionGroup("primitive", "Primitive instruction set")
@@ -26,6 +26,14 @@ real = Operand('real', Real, doc="A real cretonne value")
 fromReal = Operand('fromReal', Real.to_bitvec(),
                    doc="A real cretonne value converted to a BV")
 
+N = Operand('N', imm64)
+
+prim_int2bv = Instruction(
+        'prim_int2bv', r"""
+        Materialize an integer constant as a bitvector.
+        """,
+        ins=(N), outs=(a))
+
 prim_to_bv = Instruction(
         'prim_to_bv', r"""
         Convert an SSA Value to a flat bitvector
@@ -39,8 +47,7 @@ prim_from_bv = Instruction(
         'prim_from_bv', r"""
         Convert a flat bitvector to a real SSA Value.
         """,
-        ins=(x), outs=(real),
-        constraints=SameWidth(BV, Real))
+        ins=(fromReal), outs=(real))
 
 xh = Operand('xh', BV.half_width(),
              doc="A semantic value representing the upper half of X")

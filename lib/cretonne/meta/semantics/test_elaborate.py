@@ -9,7 +9,8 @@ from cdsl.xform import Rtl
 from unittest import TestCase
 from .elaborate import cleanup_concrete_rtl, elaborate, is_rtl_concrete,\
     cleanup_semantics
-from .primitives import prim_to_bv, bvsplit, prim_from_bv, bvconcat, bvadd
+from .primitives import prim_to_bv, bvsplit, prim_from_bv, bvconcat, bvadd,\
+    prim_int2bv
 import base.semantics  # noqa
 
 
@@ -205,8 +206,8 @@ class TestElaborate(TestCase):
         assert concrete_rtls_eq(sem, cleanup_concrete_rtl(Rtl(
             bvx << prim_to_bv.i32x4(x),
             (bvlo, bvhi) << bvsplit.bv128(bvx),
-            lo << prim_from_bv.i32x2.bv64(bvlo),
-            hi << prim_from_bv.i32x2.bv64(bvhi))))
+            lo << prim_from_bv.i32x2(bvlo),
+            hi << prim_from_bv.i32x2(bvhi))))
 
     def test_elaborate_vconcat(self):
         # type: () -> None
@@ -227,7 +228,7 @@ class TestElaborate(TestCase):
             bvlo << prim_to_bv.i32x2(lo),
             bvhi << prim_to_bv.i32x2(hi),
             bvx << bvconcat.bv64(bvlo, bvhi),
-            x << prim_from_bv.i32x4.bv128(bvx))))
+            x << prim_from_bv.i32x4(bvx))))
 
     def test_elaborate_iadd_simple(self):
         # type: () -> None
@@ -247,7 +248,7 @@ class TestElaborate(TestCase):
             bvx << prim_to_bv.i32(x),
             bvy << prim_to_bv.i32(y),
             bva << bvadd.bv32(bvx, bvy),
-            a << prim_from_bv.i32.bv32(bva))))
+            a << prim_from_bv.i32(bva))))
 
     def test_elaborate_iadd_elaborate_1(self):
         # type: () -> None
@@ -279,7 +280,7 @@ class TestElaborate(TestCase):
             bva_3 << bvadd.bv32(bvlo_1, bvlo_2),
             bva_4 << bvadd.bv32(bvhi_1, bvhi_2),
             bvx_5 << bvconcat.bv32(bva_3, bva_4),
-            a << prim_from_bv.i32x2.bv64(bvx_5))))
+            a << prim_from_bv.i32x2(bvx_5))))
 
     def test_elaborate_iadd_elaborate_2(self):
         # type: () -> None
@@ -334,4 +335,21 @@ class TestElaborate(TestCase):
             bva_14 << bvadd.bv8(bvhi_11, bvhi_12),
             bvx_15 << bvconcat.bv8(bva_13, bva_14),
             bvx_5 << bvconcat.bv16(bvx_10, bvx_15),
-            a << prim_from_bv.i8x4.bv32(bvx_5))))
+            a << prim_from_bv.i8x4(bvx_5))))
+
+    def test_iconst(self):
+        # type: () -> None
+        i8.by(1)  # Make sure i32x2 exists.
+        r = Rtl(
+                self.v0 << iconst.i8(self.v1)
+        )
+
+        sem = cleanup_semantics(elaborate(cleanup_concrete_rtl(r)),
+                                set([self.v0]))
+        bvimm = Var('bvimm')
+        x = Var('x')
+        y = Var('y')
+
+        assert concrete_rtls_eq(sem, cleanup_concrete_rtl(Rtl(
+            bvimm << prim_int2bv.bv8(y),
+            x << prim_from_bv.i8(bvimm))))

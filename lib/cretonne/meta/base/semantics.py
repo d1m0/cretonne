@@ -1,7 +1,7 @@
 from __future__ import absolute_import
 from semantics.primitives import prim_to_bv, prim_from_bv, bvsplit, bvconcat,\
-    bvadd
-from .instructions import vsplit, vconcat, iadd
+    bvadd, prim_int2bv
+from .instructions import vsplit, vconcat, iadd, iconst
 from cdsl.xform import Rtl
 from cdsl.ast import Var
 from cdsl.typevar import TypeSet
@@ -25,6 +25,13 @@ bvlo = Var('bvlo')
 bvhi = Var('bvhi')
 
 ScalarTS = TypeSet(lanes=(1, 1), ints=True, floats=True, bools=True)
+
+iconst.set_semantics(
+    a << iconst(x),
+    Rtl(
+        bva << prim_int2bv(x),
+        a << prim_from_bv(bva)
+    ))
 
 vsplit.set_semantics(
     (lo, hi) << vsplit(x),
