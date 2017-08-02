@@ -599,12 +599,11 @@ class FlagSet(Expr):
     using the call syntax on flag immediate kinds. E.g:
     `MemFlags(algined=True, notrap=False)`.
     """
-    def __init__(self, kind, flags):
+    def __init__(self, kind, value):
         # type: (ImmediateKind, Dict[str, bool]) -> None
         self.kind = kind
-        self.flags = flags
+        self.value = value
 
     def __repr__(self):
         # type: () -> str
-        return str(self.flags)
->>>>>>> Add FlagSet Expr and code to emit it from ImmediateKind
+        return str(self.value)

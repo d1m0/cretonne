@@ -98,7 +98,11 @@ floatcc = ImmediateKind(
 memflags = ImmediateKind(
         'memflags',
         'Memory operation flags',
-        default_member='flags', rust_type='ir::MemFlags')
+        default_member='flags', rust_type='ir::MemFlags',
+        flags={
+            'aligned': '',
+            'notrap': ''
+        })
 
 #: A register unit in the current target ISA.
 regunit = ImmediateKind(

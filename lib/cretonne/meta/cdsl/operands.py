@@ -82,7 +82,7 @@ class ImmediateKind(OperandKind):
             rust_type=None,
             values=None,
             flags=None):
-        # type: (str, str, str, str, Dict[str, str]) -> None
+        # type: (str, str, str, str, Dict[str, str], Dict[str, str]) -> None
         if rust_type is None:
             rust_type = 'ir::immediates::' + camel_case(name)
         super(ImmediateKind, self).__init__(
@@ -146,6 +146,13 @@ class ImmediateKind(OperandKind):
                 raise AssertionError(
                     "{}({}): Is not a flags operand kind"
                     .format(self.name, kwargs))
+
+            for k in kwargs:
+                if k not in self.flags.keys():
+                    raise AssertionError(
+                        "{}({}): {} is not a valid flag name"
+                        .format(self.name, kwargs, k))
+
             return FlagSet(self, kwargs)
 
     def bits(self, bits):
