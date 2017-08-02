@@ -574,3 +574,37 @@ class Enumerator(Literal):
         Get the Rust expression form of this enumerator.
         """
         return self.kind.rust_enumerator(self.value)
+
+    def __repr__(self):
+        # type: () -> str
+        return '{}.{}'.format(self.kind, self.value)
+
+
+class FlagSet(Expr):
+    """
+    A value representing a set of flags.
+
+    Some immediate operand kinds like `MemFlags` have a set of flags that may
+    be set or not set. A FlagSet object represent a constraint that some of
+    those (that are mentioned) need to be either set or unset. Any flags not
+    specified in the FlagSet are left unconstrainted.
+
+    For now these constraints cannot be emitted to Rust.
+
+    :param kind: The enumerated `ImmediateKind` containing the value.
+    :param flags: A dictionary specifying the constrained flags and their
+                  expected values.
+
+    `FlagSet` nodes are not usually created directly. They are created by
+    using the call syntax on flag immediate kinds. E.g:
+    `MemFlags(algined=True, notrap=False)`.
+    """
+    def __init__(self, kind, flags):
+        # type: (ImmediateKind, Dict[str, bool]) -> None
+        self.kind = kind
+        self.flags = flags
+
+    def __repr__(self):
+        # type: () -> str
+        return str(self.flags)
+>>>>>>> Add FlagSet Expr and code to emit it from ImmediateKind

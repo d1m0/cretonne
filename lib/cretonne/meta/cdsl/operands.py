@@ -8,7 +8,7 @@ try:
     from typing import Union, Dict, TYPE_CHECKING, Iterable  # noqa
     OperandSpec = Union['OperandKind', ValueType, TypeVar]
     if TYPE_CHECKING:
-        from .ast import Enumerator, ConstantInt, ConstantBits, Literal  # noqa
+        from .ast import Enumerator, ConstantInt, ConstantBits, Literal, FlagSet  # noqa
 except ImportError:
     pass
 
@@ -80,13 +80,16 @@ class ImmediateKind(OperandKind):
             self, name, doc,
             default_member='imm',
             rust_type=None,
-            values=None):
+            values=None,
+            flags=None):
         # type: (str, str, str, str, Dict[str, str]) -> None
         if rust_type is None:
             rust_type = 'ir::immediates::' + camel_case(name)
         super(ImmediateKind, self).__init__(
                 name, doc, default_member, rust_type)
         self.values = values
+        self.flags = flags
+        assert not (self.is_enumerated() and self.is_flags())
 
     def __repr__(self):
         # type: () -> str
@@ -99,7 +102,7 @@ class ImmediateKind(OperandKind):
         `Enumerator` AST nodes: `icmp.i32(intcc.ult, a, b)`.
         """
         from .ast import Enumerator  # noqa
-        if not self.values:
+        if not self.is_enumerated():
             raise AssertionError(
                     '{n} is not an enumerated operand kind: {n}.{a}'.format(
                         n=self.name, a=value))
@@ -109,19 +112,41 @@ class ImmediateKind(OperandKind):
                         n=self.name, a=value))
         return Enumerator(self, value)
 
-    def __call__(self, value):
-        # type: (int) -> ConstantInt
+    def __call__(self, *values, **kwargs):
+        # type: (*int, **bool) -> Union[ConstantInt, FlagSet]
         """
         Create an AST node representing a constant integer:
 
             iconst(imm64(0))
+
+        Or a FlagSet:
+
+            load.i32(MemFlags(notrap=True), addr)
         """
-        from .ast import ConstantInt  # noqa
-        if self.values:
-            raise AssertionError(
+        from .ast import ConstantInt, FlagSet # noqa
+        assert not (len(values) > 0 and len(kwargs) > 0),\
+            "Can either create a ConstInt or FlagSet"
+
+        if (len(values) > 0):
+            assert len(values) == 1, "Expected one const"
+            value = values[0]
+            if self.is_enumerated():
+                raise AssertionError(
                     "{}({}): Can't make a constant numeric value for an enum"
                     .format(self.name, value))
-        return ConstantInt(self, value)
+
+            if self.is_flags():
+                raise AssertionError(
+                    "{}({}): Can't make a constant numeric value for flags"
+                    .format(self.name, value))
+
+            return ConstantInt(self, value)
+        else:
+            if not self.is_flags():
+                raise AssertionError(
+                    "{}({}): Is not a flags operand kind"
+                    .format(self.name, kwargs))
+            return FlagSet(self, kwargs)
 
     def bits(self, bits):
         # type: (int) -> ConstantBits
@@ -149,6 +174,11 @@ class ImmediateKind(OperandKind):
         assert self.is_enumerable()
         for v in self.values.keys():
             yield Enumerator(self, v)
+
+    def is_flags(self):
+        # type: () -> bool
+        """Return true if this immediate contains some flags."""
+        return self.flags is not None
 
 
 # Instances of entity reference operand types are provided in the
