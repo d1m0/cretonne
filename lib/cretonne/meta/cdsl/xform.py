@@ -2,7 +2,7 @@
 Instruction transformations.
 """
 from __future__ import absolute_import
-from .ast import Def, Var, Apply
+from .ast import Def, Var, Apply, var2atom_map
 from .ti import ti_xform, TypeEnv, get_type_env, TypeConstraint
 from collections import OrderedDict
 from functools import reduce
@@ -10,7 +10,7 @@ from functools import reduce
 try:
     from typing import Union, Iterator, Sequence, Iterable, List, Dict  # noqa
     from typing import Optional, Set # noqa
-    from .ast import Expr, VarAtomMap  # noqa
+    from .ast import Expr, VarAtomMap, VarAtomMap  # noqa
     from .isa import TargetISA  # noqa
     from .typevar import TypeVar  # noqa
     from .instructions import ConstrList, Instruction # noqa
@@ -174,6 +174,7 @@ class XForm(object):
         self.inputs = list()  # type: List[Var]
         # Variables defined in either src or dst.
         self.defs = list()  # type: List[Var]
+        self.constraints = list()  # type: List[TypeConstraint]
 
         # Rewrite variables in src and dst RTL lists to our own copies.
         # Map name -> private Var.

@@ -4,7 +4,7 @@ primitive instructions.
 """
 from .primitives import GROUP as PRIMITIVES, prim_from_bv, prim_to_bv, bvadd,\
     bvult, bvzeroext, bvsplit, bvconcat, bvsignext
-from cdsl.ast import Var
+from cdsl.ast import Var, var2atom_map
 from cdsl.types import BVType
 from .elaborate import elaborate
 from z3 import BitVec, ZeroExt, SignExt, And, Extract, Concat, Not, Solver,\

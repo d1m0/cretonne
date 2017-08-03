@@ -20,6 +20,11 @@ except ImportError:
     pass
 
 
+def var2atom_map(m):
+    # type: (VarMap) -> VarAtomMap
+    return {k: v for (k, v) in m.items()}
+
+
 def replace_var(arg, m):
     # type: (Expr, VarAtomMap) -> Expr
     """
@@ -455,6 +460,7 @@ class Apply(Expr):
             assert isinstance(self_a, Atom) and isinstance(other_a, Atom)
 
             if (isinstance(self_a, Var)):
+                # MERGE TODO: Is there any reason not to allow substituing Var with concrete value??
                 if (self_a not in s):
                     s[self_a] = other_a
                 else:

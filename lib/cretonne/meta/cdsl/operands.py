@@ -187,6 +187,20 @@ class ImmediateKind(OperandKind):
         """Return true if this immediate contains some flags."""
         return self.flags is not None
 
+    def possible_values(self):
+        # type: () -> Iterable[Atom]
+        """Return an iterator over the possible values of this immediate"""
+        from .ast import Enumerator, FlagSet  # noqa
+        assert self.is_enumerated() or self.is_flags()
+        if self.is_enumerated():
+            for v in self.values.keys():
+                yield Enumerator(self, v)
+        else:
+            flags = list(enumerate(self.flags.keys()))
+            for i in range(0, 2**len(flags)):
+                value = {f: (i & (1 << idx) != 0) for (idx, f) in flags}
+                yield FlagSet(self, value)
+
 
 # Instances of entity reference operand types are provided in the
 # `cretonne.entities` module.
