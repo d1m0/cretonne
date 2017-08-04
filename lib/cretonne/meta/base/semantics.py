@@ -5,8 +5,8 @@ from semantics.primitives import bveq, bvne, bvsge, bvsgt, bvsle, bvslt,\
         bvuge, bvugt, bvule, bvult
 from semantics.macros import bool2bv
 from .instructions import vsplit, vconcat, iadd, iadd_cout, icmp, bextend, \
-    isplit, iconcat, iadd_cin, iadd_carry
-from .immediates import intcc
+    isplit, iconcat, iadd_cin, iadd_carry, load
+from .immediates import intcc, memflags
 from cdsl.xform import Rtl, XForm
 from cdsl.ast import Var
 from cdsl.typevar import TypeSet
@@ -51,6 +51,62 @@ bvlo = Var('bvlo')
 bvhi = Var('bvhi')
 
 ScalarTS = TypeSet(lanes=(1, 1), ints=True, floats=True, bools=True)
+
+#
+# Memory operations
+#
+addr = Var('addr')
+bvaddr = Var('bvaddr')
+off = Var('off')
+bvoff = Var('bvoff')
+bveffective = Var('bveffective')
+bvloaded = Var('bvloaded')
+flags = Var('flags')
+tmp = Var('tmp')
+mem = Var('mem')
+bvmapped = Var('bvmapped')
+
+load.set_semantics(
+    a << load(flags, addr, off),
+    XForm(
+        Rtl(
+            a << load(memflags(notrap=False, aligned=False), addr, off)
+        ),
+        Rtl(
+            bvaddr << prim_to_bv(addr),
+            bvoff << bv_from_int(off),
+            bveffective << bvadd(bvaddr, bvoff),  # Overflow?
+            bvmapped << bvcontains(mem, bveffective),
+            bvloaded << bvselect(mem, bveffective),
+            bva << bvite(bvmapped, bvloaded, bva),
+            a << prim_from_bv(bva)
+        )
+    ),
+    XForm(
+        Rtl(
+            a << load(memflags(notrap=True, aligned=False), addr, off)
+        ),
+        Rtl(
+            a << load(memflags(notrap=True, aligned=False), addr, off)
+        )
+    ),
+    XForm(
+        Rtl(
+            a << load(memflags(notrap=False, aligned=True), addr, off)
+        ),
+        Rtl(
+            a << load(memflags(notrap=False, aligned=True), addr, off)
+        )
+    ),
+    XForm(
+        Rtl(
+            a << load(memflags(notrap=True, aligned=True), addr, off)
+        ),
+        Rtl(
+            a << load(memflags(notrap=True, aligned=True), addr, off)
+        )
+    ))
+
 
 vsplit.set_semantics(
     (lo, hi) << vsplit(x),
@@ -101,6 +157,7 @@ iadd_cin.set_semantics(
         a << prim_from_bv(bva)
     ))
 
+bc_out = Var('bc_out')
 iadd_cout.set_semantics(
     (a, c_out) << iadd_cout(x, y),
     Rtl(

@@ -341,3 +341,28 @@ class BVType(ValueType):
         # type: () -> int
         """Return the number of lane. For BVtypes always 1."""
         return 1
+
+
+class MemType(ValueType):
+    """A memory type. Used for semantics description only. """
+    def __init__(self, addr_bits, val_bits):
+        # type: (int, int) -> None
+        super(MemType, self).__init__(
+                name='mem{:d}->{:d}'.format(addr_bits, val_bits),
+                membytes=0,
+                doc="A semantics memory type.")
+        self.addr_bits = addr_bits
+        self.val_bits = val_bits
+
+    @staticmethod
+    def with_bits(addr_bits, val_bits):
+        # type: (int, int) -> MemType
+        name = 'mem{:d}->{:d}'.format(addr_bits, val_bits)
+        if name not in ValueType._registry:
+            return MemType(addr_bits, val_bits)
+
+        typ = ValueType.by_name(name)
+        if TYPE_CHECKING:
+            return cast(MemType, typ)
+        else:
+            return typ

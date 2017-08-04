@@ -9,7 +9,7 @@ from cdsl.xform import Rtl
 from unittest import TestCase
 from .elaborate import elaborate
 from .primitives import prim_to_bv, bvsplit, prim_from_bv, bvconcat, bvadd, \
-    bvult, bv_from_imm64, bvite
+    bvult, bv_from_imm64, bvite, bool2bv
 import base.semantics  # noqa
 
 
@@ -382,9 +382,7 @@ class TestElaborate(TestCase):
             bvy << prim_to_bv.i32(y),
             bva << bvadd.bv32(bvx, bvy),
             bc_out << bvult.bv32(bva, bvx),
-            bvone << bv_from_imm64(imm64(1)),
-            bvzero << bv_from_imm64(imm64(0)),
-            bvc_out << bvite(bc_out, bvone, bvzero),
+            bvc_out << bool2bv(bc_out),
             a << prim_from_bv.i32(bva),
             c_out << prim_from_bv.b1(bvc_out)
         )

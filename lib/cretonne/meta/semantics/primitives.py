@@ -10,8 +10,11 @@ from cdsl.operands import Operand
 from cdsl.typevar import TypeVar
 from cdsl.instructions import Instruction, InstructionGroup
 from cdsl.ti import WiderOrEq
+from cdsl.types import MemType
 from base.types import b1
 from base.immediates import imm64
+from cdsl.ast import Var
+from cdsl.xform import Rtl
 import base.formats # noqa
 
 GROUP = InstructionGroup("primitive", "Primitive instruction set")
@@ -37,13 +40,51 @@ prim_to_bv = Instruction(
         'prim_to_bv', r"""
         Convert an SSA Value to a flat bitvector
         """,
-        ins=(real), outs=(fromReal))
+        ins=real, outs=fromReal)
 
 prim_from_bv = Instruction(
         'prim_from_bv', r"""
         Convert a flat bitvector to a real SSA Value.
         """,
-        ins=(fromReal), outs=(real))
+        ins=fromReal, outs=real)
+
+N = Operand('N', imm64)
+bv_from_int = Instruction(
+        'bv_from_int', r"""Materialize an int immediate as a bitvector.""",
+        ins=(N), outs=a)
+
+#
+# Generics
+#
+bvite = Instruction(
+        'bvite', r"""Bitvector ternary operator""",
+        ins=(cond, x, y), outs=a)
+
+#
+# BV Memory Ops
+#
+Mem = TypeVar.singleton(MemType.with_bits(64, 8))
+MemTo = TypeVar.singleton(MemType.with_bits(64, 8))
+
+mem = Operand('mem', Mem, doc="A semantic value representing a memory")
+memTo = Operand('memTo', MemTo, doc="A semantic value representing a memory")
+addr = Operand('addr', Mem.domain(), doc="A semantic value addr")
+val = Operand('val', Mem.range(), doc="A semantic value for a memory cell")
+
+bvselect = Instruction(
+        'bvselect', r"""
+        """,
+        ins=(mem, addr), outs=val)
+
+bvstore = Instruction(
+        'bvstore', r"""
+        """,
+        ins=(mem, addr, val), outs=memTo)
+
+bvcontains = Instruction(
+        'bvcontains', r"""
+        """,
+        ins=(mem, addr), outs=cond)
 
 N = Operand('N', imm64)
 bv_from_imm64 = Instruction(
@@ -62,6 +103,10 @@ xh = Operand('xh', BV.half_width(),
              doc="A semantic value representing the upper half of X")
 xl = Operand('xl', BV.half_width(),
              doc="A semantic value representing the lower half of X")
+
+#
+# Width manipulation bvs
+#
 bvsplit = Instruction(
         'bvsplit', r"""
         """,
@@ -73,7 +118,24 @@ bvconcat = Instruction(
         'bvconcat', r"""
         """,
         ins=(x, y), outs=xy)
+#
+# Extensions
+#
+ToBV = TypeVar('ToBV', 'A bitvector type.', bitvecs=True)
+x1 = Operand('x1', ToBV, doc="")
 
+bvzeroext = Instruction(
+        'bvzeroext', r"""Unsigned bitvector extension""",
+        ins=x, outs=x1, constraints=WiderOrEq(ToBV, BV))
+
+bvsignext = Instruction(
+        'bvsignext', r"""Signed bitvector extension""",
+        ins=x, outs=x1, constraints=WiderOrEq(ToBV, BV))
+
+
+#
+# Arithmetic ops
+#
 bvadd = Instruction(
         'bvadd', r"""
         Standard 2's complement addition. Equivalent to wrapping integer
@@ -129,5 +191,4 @@ bvzeroext = Instruction(
 bvsignext = Instruction(
         'bvsignext', r"""Signed bitvector extension""",
         ins=x, outs=x1, constraints=WiderOrEq(ToBV, BV))
-
 GROUP.close()
