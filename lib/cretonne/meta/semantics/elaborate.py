@@ -6,6 +6,7 @@ primitive cretonne instructions, which map well to SMTLIB functions.
 from .primitives import GROUP as PRIMITIVES, prim_to_bv, prim_from_bv
 from cdsl.xform import Rtl
 from cdsl.ast import Var
+from cdsl.typevar import TypeVar
 
 try:
     from typing import TYPE_CHECKING, Dict, Union, List, Set, Tuple # noqa
@@ -111,36 +112,96 @@ def cleanup_semantics(r, outputs):
     return Rtl(*new_defs)
 
 
+if TYPE_CHECKING:
+    from cdsl.instruction import Instruction
+    from cdsl.types import ValueType
+    from cdsl.ast import Expr
+    SemKey = Tuple[Instruction, Tuple[ValueType, ...], Tuple[Expr, ...]]
+    ImplicitState = Dict[str, Var]
+
+
+_sem_registry = {}  # type: Dict[SemKey, XForm]  # noqa
+
+
+def key(d):
+    # type: (Def) -> SemKey
+    ssa_vals = d.defs + tuple(d.expr.args[i] for i in d.expr.inst.value_opnums)
+    imms = [d.expr.args[i] for i in d.expr.inst.imm_opnums]
+    imms = [None if isinstance(imm, Var) else imm for imm in imms]
+    types = [v.get_typevar().singleton_type() for v in ssa_vals]
+    return (d.expr.inst,) + tuple(types) + tuple(imms)
+
+
+primitives = set(PRIMITIVES.instructions)
+
+
+def elaborate_def(d, idx, state):
+    # type: (Def, int, ImplicitState) -> (Rtl, int, ImplicitState)
+    """
+    Given a concrete Def d, return a semantically equivalent Rtl containing
+    only primitive instructions.
+    """
+    inst = d.expr.inst
+    r = Rtl(d)
+    assert r.is_concrete()
+
+    if (inst in primitives):
+        for v in d.defs:
+            if v.name.startswith('out_trapped'):
+                state['in_trapped'] = v
+        return (r, idx, state)
+
+    k = key(d)
+    if k in _sem_registry:
+        r = _sem_registry[k].apply(r, str(idx), state)
+        for df in reversed(r.rtl):
+            for v in d.defs:
+                if v.name.startswith('out_trapped'):
+                    state['in_trapped'] = v
+                    break
+        return r, idx+1, state
+    else:
+        outputs = r.definitions()
+        t = find_matching_xform(d)
+        transformed = t.apply(r, str(idx), state)
+        idx += 1
+
+        elaborated_defs = []  # type: List[Def]
+        for inner_d in transformed.rtl:
+            t_rtl, idx, state = elaborate_def(inner_d, idx, state)
+            elaborated_defs.extend(t_rtl.rtl)
+
+        elaborated_rtl = Rtl(*elaborated_defs)
+        elaborated_rtl = cleanup_semantics(elaborated_rtl, outputs)
+        implicit_inputs = elaborated_rtl.free_vars().difference(r.free_vars())
+        s = {}  # type: VarMap
+        _sem_registry[k] = XForm(r.copy(s), elaborated_rtl.copy(s),
+                                 implicit_inputs=implicit_inputs)
+        return elaborated_rtl, idx, state
+
+
 def elaborate(r):
     # type: (Rtl) -> Rtl
     """
     Given a concrete Rtl r, return a semantically equivalent Rtl r1 containing
     only primitive instructions.
     """
-    fp = False
-    primitives = set(PRIMITIVES.instructions)
+    from base.types import b1
     idx = 0
 
-    res = Rtl(*r.rtl)
-    outputs = res.definitions()
+    outputs = r.definitions()
+    elaborated_defs = []  # type: List[Def]
+    initialMem = Var('mem', TypeVar('', '', memories=True))
+    initialTrapped = Var('in_trapped', TypeVar.singleton(b1))
+    state = {
+        'mem': initialMem,
+        'in_trapped': initialTrapped
+    }
 
-    while not fp:
-        assert res.is_concrete()
-        new_defs = []  # type: List[Def]
-        fp = True
+    for d in r.rtl:
+        elaborated_d, idx, state, = elaborate_def(d, idx, state)
+        elaborated_defs.extend(elaborated_d.rtl)
 
-        for d in res.rtl:
-            inst = d.expr.inst
-
-            if (inst not in primitives):
-                t = find_matching_xform(d)
-                transformed = t.apply(Rtl(d), str(idx))
-                idx += 1
-                new_defs.extend(transformed.rtl)
-                fp = False
-            else:
-                new_defs.append(d)
-
-        res.rtl = tuple(new_defs)
-
-    return cleanup_semantics(res, outputs)
+    elaborated_rtl = Rtl(*elaborated_defs)
+    assert elaborated_rtl.is_concrete()
+    return cleanup_semantics(elaborated_rtl, outputs)

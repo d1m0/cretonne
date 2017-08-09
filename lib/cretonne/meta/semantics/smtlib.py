@@ -3,13 +3,14 @@ Tools to emit SMTLIB bitvector queries encoding concrete RTLs containing only
 primitive instructions.
 """
 from .primitives import GROUP as PRIMITIVES, prim_from_bv, prim_to_bv, bvadd,\
-    bvult, bvzeroext, bvsplit, bvconcat, bvsignext
-from cdsl.ast import Var, var2atom_map
+    bvult, bvzeroext, bvsplit, bvconcat, bvsignext, bv_from_imm64, bvite, bvsub
+from cdsl.ast import Var, var2atom_map, ConstantInt
 from cdsl.types import BVType
 from .elaborate import elaborate
 from z3 import BitVec, ZeroExt, SignExt, And, Extract, Concat, Not, Solver,\
-    unsat, BoolRef, BitVecVal, If
+    unsat, BoolRef, BitVecVal, Bool, If
 from z3.z3core import Z3_mk_eq
+from base.types import b1
 
 try:
     from typing import TYPE_CHECKING, Tuple, Dict, List # noqa
@@ -29,6 +30,13 @@ def mk_eq(e1, e2):
     # type: (ExprRef, ExprRef) -> ExprRef
     """Return a z3 expression equivalent to e1 == e2"""
     return BoolRef(Z3_mk_eq(e1.ctx_ref(), e1.as_ast(), e2.as_ast()), e1.ctx)
+
+
+def num_bits(v):
+    # type: (Var) -> int
+    typ = v.get_typevar().singleton_type()
+    assert isinstance(typ, BVType)
+    return typ.bits
 
 
 def to_smt(r):
@@ -52,10 +60,12 @@ def to_smt(r):
     var_to_bv = {}  # type: Z3VarMap
     for v in r.vars():
         typ = v.get_typevar().singleton_type()
-        if not isinstance(typ, BVType):
-            continue
-
-        var_to_bv[v] = BitVec(v.name, typ.bits)
+        if isinstance(typ, BVType):
+            var_to_bv[v] = BitVec(v.name, typ.bits)
+        elif typ == b1:
+            var_to_bv[v] = Bool(v.name)
+        else:
+            pass  # Don't care about other types
 
     # Encode each instruction as a equality assertion
     for d in r.rtl:
@@ -73,20 +83,25 @@ def to_smt(r):
             m[d.defs[0]] = var_to_bv[d.expr.args[0]]
             continue
 
-        if inst in [bvadd, bvult]:  # Binary instructions
+        if inst == bv_from_imm64:  # BV Literal
+            literal = d.expr.args[0]
+            df = d.defs[0]
+            assert isinstance(literal, ConstantInt)
+            exp = mk_eq(var_to_bv[df], BitVecVal(literal.value, num_bits(df)))
+        elif inst in [bvadd, bvsub, bvult]:  # Binary instructions
             assert len(d.expr.args) == 2 and len(d.defs) == 1
             lhs = d.expr.args[0]
             rhs = d.expr.args[1]
             df = d.defs[0]
             assert isinstance(lhs, Var) and isinstance(rhs, Var)
 
-            if inst == bvadd:  # Normal binary - output type same as args
+            if inst == bvadd:
                 exp = (var_to_bv[lhs] + var_to_bv[rhs])
+            elif inst == bvsub:
+                exp = (var_to_bv[lhs] - var_to_bv[rhs])
             else:
                 assert inst == bvult
                 exp = (var_to_bv[lhs] < var_to_bv[rhs])
-                # Comparison binary - need to convert bool to BitVec 1
-                exp = If(exp, BitVecVal(1, 1), BitVecVal(0, 1))
 
             exp = mk_eq(var_to_bv[df], exp)
         elif inst == bvzeroext:
@@ -128,6 +143,15 @@ def to_smt(r):
 
             # Z3 Concat expects hi bits first, then lo bits
             exp = mk_eq(var_to_bv[df], Concat(var_to_bv[hi], var_to_bv[lo]))
+        elif inst == bvite:
+            cond = d.expr.args[0]
+            then = d.expr.args[1]
+            els = d.expr.args[2]
+            df = d.defs[0]
+
+            # Z3 Concat expects hi bits first, then lo bits
+            exp = mk_eq(var_to_bv[df],
+                        If(var_to_bv[cond], var_to_bv[then], var_to_bv[els]))
         else:
             assert False, "Unknown primitive instruction {}".format(inst)
 
@@ -152,7 +176,8 @@ def equivalent(r1, r2, inp_m, out_m):
     """
     # Sanity - inp_m is a bijection from the set of inputs of r1 to the set of
     # inputs of r2
-    assert set(r1.free_vars()) == set(inp_m.keys())
+    assert set(r1.free_vars()) == set(inp_m.keys()), \
+        "{} != {}".format(r1.free_vars(), set(inp_m.keys()))
     assert set(r2.free_vars()) == set(inp_m.values())
 
     # Note that the same rule is not expected to hold for out_m due to
@@ -232,6 +257,7 @@ def xform_correct(x, typing):
     # Get the primitive semantic Rtls for src and dst
     prim_src = elaborate(src)
     prim_dst = elaborate(dst)
+    print ("{}\n\n{}".format(prim_src, prim_dst))
     asserts = equivalent(prim_src, prim_dst, inp_m, out_m)
 
     s = Solver()

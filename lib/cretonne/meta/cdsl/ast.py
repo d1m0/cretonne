@@ -252,7 +252,7 @@ class Var(Atom):
                     'typeof_{}'.format(self),
                     'Type of the pattern variable `{}`'.format(self),
                     ints=True, floats=True, bools=True,
-                    scalars=True, simd=True, bitvecs=True)
+                    scalars=True, simd=True, bitvecs=True, memories=True)
             self.original_typevar = tv
             self.typevar = tv
         return self.typevar
@@ -429,8 +429,10 @@ class Apply(Expr):
         Return a copy of this Expr with vars replaced with fresh variables,
         in accordance with the map m. Update m as neccessary.
         """
-        return Apply(self.inst, tuple(map(lambda e: replace_var(e, m),
-                                          self.args)))
+        new_exp = Apply(self.inst, tuple(map(lambda e: replace_var(e, m),
+                                         self.args)))
+        new_exp.typevars = self.typevars
+        return new_exp
 
     def vars(self):
         # type: () -> Set[Var]
@@ -458,6 +460,13 @@ class Apply(Expr):
 
         for (self_a, other_a) in zip(self.args, other.args):
             assert isinstance(self_a, Atom) and isinstance(other_a, Atom)
+            if (isinstance(self_a, Var)):
+                if not (isinstance(other_a, Var) or
+                        isinstance(other_a, ConstantInt) or
+                        isinstance(other_a, FlagSet) or
+                        isinstance(other_a, Enumerator)):
+                    # Can only substitute with a Var or a constant expression
+                    return None
 
             if (isinstance(self_a, Var)):
                 # MERGE TODO: Is there any reason not to allow substituing Var with concrete value??

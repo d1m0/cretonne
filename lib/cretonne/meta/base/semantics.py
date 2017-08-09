@@ -2,18 +2,20 @@ from __future__ import absolute_import
 from semantics.primitives import prim_to_bv, prim_from_bv, bvsplit, bvconcat,\
     bvadd, bvzeroext, bvsignext
 from semantics.primitives import bveq, bvne, bvsge, bvsgt, bvsle, bvslt,\
-        bvuge, bvugt, bvule, bvult
-from semantics.macros import bool2bv
+        bvuge, bvugt, bvule, bvult, prim_or, bvite, prim_not, prim_and,\
+        bvrand, bvsub
+from semantics.macros import bool2bv, bvadd_imm, bvaligned, bvselect_wide,\
+    bvcontains_wide
 from .instructions import vsplit, vconcat, iadd, iadd_cout, icmp, bextend, \
-    isplit, iconcat, iadd_cin, iadd_carry, load
-from .immediates import intcc, memflags
+    isplit, iconcat, iadd_cin, iadd_carry, load, isub
+from .immediates import intcc, memflags, imm64
 from cdsl.xform import Rtl, XForm
 from cdsl.ast import Var
 from cdsl.typevar import TypeSet
 from cdsl.ti import InTypeset
 
 try:
-    from typing import TYPE_CHECKING # noqa
+    from typing import TYPE_CHECKING, Tuple, Dict, List # noqa# noqa
     if TYPE_CHECKING:
         from cdsl.ast import Enumerator # noqa
         from cdsl.instructions import Instruction # noqa
@@ -57,6 +59,7 @@ ScalarTS = TypeSet(lanes=(1, 1), ints=True, floats=True, bools=True)
 #
 addr = Var('addr')
 bvaddr = Var('bvaddr')
+bvaddr_exp = Var('bvaddr_exp')
 off = Var('off')
 bvoff = Var('bvoff')
 bveffective = Var('bveffective')
@@ -65,47 +68,86 @@ flags = Var('flags')
 tmp = Var('tmp')
 mem = Var('mem')
 bvmapped = Var('bvmapped')
+a_equiv = Var('a_equiv')
+aligned = Var('aligned')
+mapped = Var('mapped')
+fails = Var('fails')
+out_trapped = Var('out_trapped')
+in_trapped = Var('in_trapped')
+out_ub = Var('out_ub')
+in_ub = Var('in_ub')
+bvmemval = Var('bvmemval')
 
 load.set_semantics(
     a << load(flags, addr, off),
     XForm(
         Rtl(
-            a << load(memflags(notrap=False, aligned=False), addr, off)
+            a << load(memflags(notrap=False, aligned=False), addr, off),
         ),
         Rtl(
             bvaddr << prim_to_bv(addr),
-            bvoff << bv_from_int(off),
-            bveffective << bvadd(bvaddr, bvoff),  # Overflow?
-            bvmapped << bvcontains(mem, bveffective),
-            bvloaded << bvselect(mem, bveffective),
-            bva << bvite(bvmapped, bvloaded, bva),
-            a << prim_from_bv(bva)
-        )
+            bvaddr_exp << bvzeroext(bvaddr),  # bvselects expects 64 bit addrs
+            bveffective << bvadd_imm(bvaddr_exp, off),
+            bvloaded << bvselect_wide(mem, bveffective),
+            aligned << bvaligned(bveffective, bvloaded),
+            mapped << bvcontains_wide(mem, bveffective, bvloaded, imm64(0)),
+            a << prim_from_bv(bvloaded),
+            out_trapped << prim_or(in_trapped, prim_or(prim_not(aligned),
+                                                       prim_not(mapped))),
+        ),
+        implicit_inputs=[mem, in_trapped]
     ),
     XForm(
         Rtl(
-            a << load(memflags(notrap=True, aligned=False), addr, off)
+            a << load(memflags(notrap=True, aligned=False), addr, off),
         ),
         Rtl(
-            a << load(memflags(notrap=True, aligned=False), addr, off)
-        )
+            bvaddr << prim_to_bv(addr),
+            bvaddr_exp << bvzeroext(bvaddr),
+            bveffective << bvadd_imm(bvaddr_exp, off),
+            bvmemval << bvselect_wide(mem, bveffective),
+            aligned << bvaligned(bveffective, bvmemval),
+            mapped << bvcontains_wide(mem, bveffective, bvmemval, imm64(0)),
+            bvloaded << bvite(mapped, bvmemval, bvrand()),
+            a << prim_from_bv(bvloaded),
+            out_trapped << prim_or(in_trapped, prim_not(aligned)),
+        ),
+        implicit_inputs=[mem, in_trapped]
     ),
     XForm(
         Rtl(
-            a << load(memflags(notrap=False, aligned=True), addr, off)
+            a << load(memflags(notrap=False, aligned=True), addr, off),
         ),
         Rtl(
-            a << load(memflags(notrap=False, aligned=True), addr, off)
-        )
+            bvaddr << prim_to_bv(addr),
+            bvaddr_exp << bvzeroext(bvaddr),
+            bveffective << bvadd_imm(bvaddr_exp, off),
+            bvmemval << bvselect_wide(mem, bveffective),
+            aligned << bvaligned(bveffective, bvmemval),
+            mapped << bvcontains_wide(mem, bveffective, bvmemval, imm64(0)),
+            bvloaded << bvite(aligned, bvmemval, bvrand()),
+            a << prim_from_bv(bvloaded),
+            out_trapped << prim_or(in_trapped, prim_not(mapped)),
+        ),
+        implicit_inputs=[mem, in_trapped]
     ),
     XForm(
         Rtl(
-            a << load(memflags(notrap=True, aligned=True), addr, off)
+            a << load(memflags(notrap=True, aligned=True), addr, off),
         ),
         Rtl(
-            a << load(memflags(notrap=True, aligned=True), addr, off)
-        )
-    ))
+            bvaddr << prim_to_bv(addr),
+            bvaddr_exp << bvzeroext(bvaddr),
+            bveffective << bvadd_imm(bvaddr_exp, off),
+            bvmemval << bvselect_wide(mem, bveffective),
+            aligned << bvaligned(bveffective, bvmemval),
+            mapped << bvcontains_wide(mem, bveffective, bvmemval, imm64(0)),
+            bvloaded << bvite(prim_and(mapped, aligned), bvmemval, bvrand()),
+            a << prim_from_bv(bvloaded),
+        ),
+        implicit_inputs=[mem]
+    ),
+    )
 
 
 vsplit.set_semantics(
@@ -139,6 +181,22 @@ iadd.set_semantics(
         (ylo, yhi) << vsplit(y),
         alo << iadd(xlo, ylo),
         ahi << iadd(xhi, yhi),
+        a << vconcat(alo, ahi)
+    ))
+
+isub.set_semantics(
+    a << isub(x, y),
+    (Rtl(
+        bvx << prim_to_bv(x),
+        bvy << prim_to_bv(y),
+        bva << bvsub(bvx, bvy),
+        a << prim_from_bv(bva)
+    ), [InTypeset(x.get_typevar(), ScalarTS)]),
+    Rtl(
+        (xlo, xhi) << vsplit(x),
+        (ylo, yhi) << vsplit(y),
+        alo << isub(xlo, ylo),
+        ahi << isub(xhi, yhi),
         a << vconcat(alo, ahi)
     ))
 

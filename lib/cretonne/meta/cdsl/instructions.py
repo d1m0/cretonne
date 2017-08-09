@@ -360,16 +360,36 @@ class Instruction(object):
         """Set our semantics."""
         from semantics import verify_semantics
         from .xform import XForm, Rtl
+        from .ast import Var # noqa
 
         sem = []  # type: List[XForm]
+        sem_inputs = set(['in_mem', 'in_trapped'])
+        sem_defs = set(['out_mem', 'out_trapped'])
+
+        def _to_str(s):
+            # type: (Set[Var]) -> Set[str]
+            return set(v.name for v in s)
+
+        def _from_str(s):
+            # type: (Set[str]) -> Set[Var]
+            return set(Var(name) for name in s)
+
         for dst in dsts:
             if isinstance(dst, Rtl):
-                sem.append(XForm(Rtl(src).copy({}), dst))
-            elif isinstance(dst, XForm):
+                actual_inputs = _to_str(dst.free_vars())
+                actual_defs = _to_str(dst.definitions())
                 sem.append(XForm(
-                    dst.src.copy({}),
-                    dst.dst.copy({}),
-                    dst.constraints))
+                    Rtl(src).copy({}),
+                    dst,
+                    _from_str(sem_inputs.intersection(actual_inputs)),
+                    _from_str(sem_defs.intersection(actual_defs)),
+                ))
+            elif isinstance(dst, XForm):
+                sem.append(XForm(dst.src.copy({}),
+                                 dst.dst.copy({}),
+                                 dst.constraints,
+                                 dst.implicit_inputs,
+                                 dst.implicit_defs))
             else:
                 assert isinstance(dst, tuple)
                 sem.append(XForm(Rtl(src).copy({}), dst[0],
@@ -389,6 +409,8 @@ class BoundInstruction(object):
         # type: (Instruction, Tuple[ValueType, ...]) -> None
         self.inst = inst
         self.typevars = typevars
+        if not len(typevars) <= 1 + len(inst.other_typevars):
+            print (self.typevars, inst.other_typevars)
         assert len(typevars) <= 1 + len(inst.other_typevars)
 
     def __str__(self):

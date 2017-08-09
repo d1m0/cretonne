@@ -6,14 +6,16 @@ from .ast import Def, Var, Apply, var2atom_map
 from .ti import ti_xform, TypeEnv, get_type_env, TypeConstraint
 from collections import OrderedDict
 from functools import reduce
+from .typevar import TypeVar  # noqa
 
 try:
     from typing import Union, Iterator, Sequence, Iterable, List, Dict  # noqa
     from typing import Optional, Set # noqa
-    from .ast import Expr, VarAtomMap, VarAtomMap  # noqa
+    from .ast import Expr, VarMap, VarAtomMap  # noqa
     from .isa import TargetISA  # noqa
     from .typevar import TypeVar  # noqa
     from .instructions import ConstrList, Instruction # noqa
+    from .ti import TypeConstraint  # noqa
     DefApply = Union[Def, Apply]
 except ImportError:
     pass
@@ -32,6 +34,55 @@ def canonicalize_defapply(node):
         return node
 
 
+var_ctr = 0
+
+
+def get_fresh_temp():
+    # type: () -> Var
+    global var_ctr
+    var_ctr += 1
+    return Var('_tmp.{}'.format(var_ctr))
+
+
+def flatten_expr(exp):
+    # type: (Expr) -> Tuple[Sequence[Def], Expr]
+    if isinstance(exp, Apply):
+        new_args = []  # type: List[Expr]
+        new_defs = []  # type: List[Def]
+        for arg in exp.args:
+            (defs, arg) = flatten_expr(arg)
+            new_defs.extend(defs)
+            new_args.append(arg)
+
+        new_exp = Apply(exp.inst, tuple(new_args))
+        new_exp.typevars = exp.typevars
+        new_temp = get_fresh_temp()
+        new_defs.append(Def(new_temp, new_exp))
+        return (new_defs, new_temp)
+
+    return ([], exp)
+
+
+def flatten_def(d):
+    # type: (Def) -> List[Def]
+    defs = []  # type: List[Def]
+    new_args = []  # type: List[Expr]
+    for arg in d.expr.args:
+        new_defs, new_arg = flatten_expr(arg)
+        defs.extend(new_defs)
+        new_args.append(new_arg)
+
+    new_exp = Apply(d.expr.inst, tuple(new_args))
+    new_exp.typevars = d.expr.typevars
+    defs.append(Def(d.defs, new_exp))
+    return defs
+
+
+def flatten_defs(defs):
+    # type: (Iterable[Def]) -> List[Def]
+    return reduce(lambda acc, d:    acc + flatten_def(d), defs, [])
+
+
 class Rtl(object):
     """
     Register Transfer Language list.
@@ -45,7 +96,7 @@ class Rtl(object):
 
     def __init__(self, *args):
         # type: (*DefApply) -> None
-        self.rtl = tuple(map(canonicalize_defapply, args))
+        self.rtl = tuple(flatten_defs(map(canonicalize_defapply, args)))
 
     def copy(self, m):
         # type: (VarAtomMap) -> Rtl
@@ -166,8 +217,8 @@ class XForm(object):
     )
     """
 
-    def __init__(self, src, dst, constraints=None):
-        # type: (Rtl, Rtl, Optional[ConstrList]) -> None
+    def __init__(self, src, dst, constraints=None, implicit_inputs=None, implicit_defs=None): # noqa
+        # type: (Rtl, Rtl, Optional[Sequence[TypeConstraint]], Optional[Iterable[Var]]) -> None # noqa
         self.src = src
         self.dst = dst
         # Variables that are inputs to the source pattern.
@@ -181,9 +232,24 @@ class XForm(object):
         symtab = dict()  # type: Dict[str, Var]
         self._rewrite_rtl(src, symtab, Var.SRCCTX)
         num_src_inputs = len(self.inputs)
+
+        if implicit_inputs is not None:
+            for v in implicit_inputs:
+                assert str(v) not in symtab
+            num_src_inputs += len(implicit_inputs)
+
         self._rewrite_rtl(dst, symtab, Var.DSTCTX)
         # Needed for testing type inference on XForms
         self.symtab = symtab
+
+        self.implicit_inputs = set() if implicit_inputs is None else\
+            set(symtab[str(v)] for v in implicit_inputs)
+
+        self.implicit_defs = set() if implicit_defs is None else\
+            set(symtab[str(v)] for v in implicit_defs)
+
+        assert self.implicit_inputs.issubset(set(self.inputs))
+        assert self.implicit_defs.issubset(set(self.defs))
 
         # Check for inconsistently used inputs.
         for i in self.inputs:
@@ -198,7 +264,11 @@ class XForm(object):
                         self.inputs[num_src_inputs:]))
 
         # Perform type inference and cleanup
-        raw_ti = get_type_env(ti_xform(self, TypeEnv()))
+        typenv = TypeEnv()
+        for v in self.implicit_inputs:
+            typenv.ranks[v.get_typevar()] = TypeEnv.RANK_IMPLICIT_INPUT
+
+        raw_ti = get_type_env(ti_xform(self, typenv))
         raw_ti.normalize()
         self.ti = raw_ti.extract()
 
@@ -339,15 +409,29 @@ class XForm(object):
                 raise AssertionError(
                         '{} not defined in dest pattern'.format(d))
 
-    def apply(self, r, suffix=None):
-        # type: (Rtl, str) -> Rtl
+    def apply(self, r, suffix=None, implicit_inputs_map=None):
+        # type: (Rtl, str, VarMap) -> Rtl
         """
         Given a concrete Rtl r s.t. r matches self.src, return the
         corresponding concrete self.dst. If suffix is provided, any temporary
         defs are renamed with '.suffix' appended to their old name.
         """
         assert r.is_concrete()
-        s = self.src.substitution(r, {})  # type: VarAtomMap
+
+        if implicit_inputs_map is None:
+            implicit_inputs_map = {}
+
+        assert set(v.name for v in self.implicit_inputs)\
+            .issubset(set(implicit_inputs_map.keys()))
+
+        internal_impl_inp_m = {v: implicit_inputs_map[v.name]
+                               for v in self.implicit_inputs}
+
+        try:
+            s = var2atom_map(self.src.substitution(r, internal_impl_inp_m))
+        except:
+            print ("{}, {}".format(self, r))
+            raise
         assert s is not None
 
         if (suffix is not None):
@@ -358,6 +442,7 @@ class XForm(object):
 
         dst = self.dst.copy(s)
         dst.cleanup_concrete_rtl()
+
         return dst
 
 

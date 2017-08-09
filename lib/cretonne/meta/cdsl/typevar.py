@@ -7,7 +7,7 @@ polymorphic by using type variables.
 from __future__ import absolute_import
 import math
 from . import types, is_power_of_two
-from copy import deepcopy
+from copy import copy
 
 try:
     from typing import Tuple, Union, Iterable, Any, Set, TYPE_CHECKING # noqa
@@ -17,7 +17,7 @@ try:
         Interval = Tuple[int, int]
         # An Interval where `True` means 'everything'
         BoolInterval = Union[bool, Interval]
-        BoolMemInterval = Union[bool, Tuple[Interval, Interval]]
+        BoolMemInterval = Union[bool, Tuple[BoolInterval, BoolInterval]]
 except ImportError:
     pass
 
@@ -134,6 +134,9 @@ def decode_memory(intvs, addr_range, val_range):
     if intvs is None or intvs is False:
         return set()
 
+    if intvs is True:
+        intvs = (True, True)
+
     assert isinstance(intvs, tuple)
     addr_widths = interval_to_set(decode_interval(intvs[0], addr_range))
     val_widths = interval_to_set(decode_interval(intvs[1], val_range))
@@ -224,7 +227,14 @@ class TypeSet(object):
         Return a copy of our self. deepcopy is sufficient and safe here, since
         TypeSet contains only sets of numbers.
         """
-        return deepcopy(self)
+        new = TypeSet()
+        new.lanes = copy(self.lanes)
+        new.ints = copy(self.ints)
+        new.floats = copy(self.floats)
+        new.bools = copy(self.bools)
+        new.bitvecs = copy(self.bitvecs)
+        new.memories = copy(self.memories)
+        return new
 
     def typeset_key(self):
         # type: () -> Tuple[Tuple, Tuple, Tuple, Tuple, Tuple, Tuple]
@@ -988,3 +998,20 @@ class TypeVar(object):
         tv = TypeVar.from_typeset(self.type_set.copy())
         tv.name = name
         return tv
+
+    def copy(self, m):
+        # type: (TypeMap) -> TypeVar
+        """
+        Return a copy of self respecting the specified substitution map.
+        Updates m.
+        """
+        if self in m:
+            return m[self]
+
+        if (not self.is_derived):
+            res = self.get_fresh_copy(self.name)
+        else:
+            res = TypeVar.derived(self.base.copy(m), self.derived_func)
+
+        m[self] = res
+        return res

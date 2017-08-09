@@ -281,6 +281,7 @@ class TypeEnv(object):
 
     RANK_SINGLETON = 5
     RANK_INPUT = 4
+    RANK_IMPLICIT_INPUT = 4
     RANK_INTERMEDIATE = 3
     RANK_OUTPUT = 2
     RANK_TEMP = 1
@@ -481,7 +482,11 @@ class TypeEnv(object):
                     continue
 
                 arg_free_tv = arg.free_typevar()
-                assert arg_free_tv is None or arg_free_tv in vars_tvs
+                if (not (arg_free_tv is None or arg_free_tv in vars_tvs)):
+                    print (self.dot())
+                assert arg_free_tv is None or arg_free_tv in vars_tvs,\
+                    "{} is neither input nor singleton in constraint {}."\
+                    .format(arg_free_tv, constr)
 
             new_constraints.append(constr)
 
@@ -549,6 +554,13 @@ class TypeEnv(object):
                 # can translate it using m. Otherwise we encounter a KeyError
                 # and ignore it
                 constr = constr.translate(m)
+                if not constr.is_concrete():
+                    print ("{} is not concrete.tvs: {} typs: {}"
+                           .format(constr, constr.tvs(),
+                                   [tv.get_typeset() for tv in constr.tvs()]))
+                    print ("Typing: {}".format(concrete_typing))
+                    print ("Map: {}".format(m))
+                    print ("Typenv: {}".format(self.dot()))
                 if not constr.eval():
                     return False
             except KeyError:
