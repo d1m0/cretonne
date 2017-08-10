@@ -321,6 +321,8 @@ def gen_xform(xform, fmt, type_sets):
     Cursor`.
     `dfg: DataFlowGraph` is available and mutable.
     """
+    assert len(xform.dst_ctx) == 0,\
+        "Currently cannot emit XForms with non-empty dst typing contexts."
     # Unwrap the source instruction, create local variables for the input
     # variables.
     replace_inst = unwrap_inst('inst', xform.src.rtl[0], fmt)

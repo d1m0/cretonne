@@ -13,6 +13,7 @@ try:
     from .isa import TargetISA  # noqa
     from .typevar import TypeVar  # noqa
     from .instructions import ConstrList # noqa
+    from .ti import VarTyping # noqa
     DefApply = Union[Def, Apply]
 except ImportError:
     pass
@@ -165,23 +166,35 @@ class XForm(object):
     )
     """
 
-    def __init__(self, src, dst, constraints=None):
-        # type: (Rtl, Rtl, Optional[ConstrList]) -> None
+    def __init__(self, src, dst, constraints=None, dst_ctx=None):
+        # type: (Rtl, Rtl, Optional[ConstrList], Optional[VarTyping]) -> None
         self.src = src
         self.dst = dst
         # Variables that are inputs to the source pattern.
         self.inputs = list()  # type: List[Var]
         # Variables defined in either src or dst.
         self.defs = list()  # type: List[Var]
+        if dst_ctx is None:
+            dst_ctx = {}
 
         # Rewrite variables in src and dst RTL lists to our own copies.
         # Map name -> private Var.
         symtab = dict()  # type: Dict[str, Var]
         self._rewrite_rtl(src, symtab, Var.SRCCTX)
         num_src_inputs = len(self.inputs)
+        # Ensure none of the dst_ctx variables appear in src
+        for v in dst_ctx.keys():
+            assert str(v) not in symtab
         self._rewrite_rtl(dst, symtab, Var.DSTCTX)
         # Needed for testing type inference on XForms
         self.symtab = symtab
+
+        # Ensure all of the dst_ctx variables appear in dst and translate them
+        # to internal variables
+        self.dst_ctx = {}  # type: VarTyping
+        for (v, typ) in dst_ctx.items():
+            assert v.name in symtab
+            self.dst_ctx[symtab[str(v)]] = typ
 
         # Check for inconsistently used inputs.
         for i in self.inputs:
@@ -190,7 +203,7 @@ class XForm(object):
                         "'{}' used as both input and def".format(i))
 
         # Check for spurious inputs in dst.
-        if len(self.inputs) > num_src_inputs:
+        if len(self.inputs) > (num_src_inputs + len(self.dst_ctx)):
             raise AssertionError(
                     "extra inputs in dst RTL: {}".format(
                         self.inputs[num_src_inputs:]))
@@ -224,7 +237,8 @@ class XForm(object):
         # TVs corresponding to Vars appearing in src
         free_typevars = set(self.ti.free_typevars())
         src_vars = set(self.inputs).union(
-            [x for x in self.defs if not x.is_temp()])
+            [x for x in self.defs if not x.is_temp()])\
+            .union(self.dst_ctx.keys())
         src_tvs = set([v.get_typevar() for v in src_vars])
         if (not free_typevars.issubset(src_tvs)):
             raise AssertionError(
@@ -337,15 +351,24 @@ class XForm(object):
                 raise AssertionError(
                         '{} not defined in dest pattern'.format(d))
 
-    def apply(self, r, suffix=None):
-        # type: (Rtl, str) -> Rtl
+    def apply(self, r, suffix=None, ctx=None):
+        # type: (Rtl, Optional[str], Optional[VarAtomMap]) -> Rtl
         """
         Given a concrete Rtl r s.t. r matches self.src, return the
         corresponding concrete self.dst. If suffix is provided, any temporary
         defs are renamed with '.suffix' appended to their old name.
         """
         assert r.is_concrete()
-        s = self.src.substitution(r, {})  # type: VarAtomMap
+        if (ctx is None):
+            ctx = {}
+
+        # Translate ctx to internal variables
+        ctx = {self.symtab[str(v1)]: v2 for (v1, v2) in ctx.items()}
+        assert set(ctx.keys()) == set(self.dst_ctx.keys()),\
+            ("Imprecise ctx specified when applying transform {} to {}:" +
+             " Expected {}, got {}.").format(self, r, set(self.dst_ctx.keys()),
+                                             set(ctx.keys()))
+        s = self.src.substitution(r, ctx)  # type: VarAtomMap
         assert s is not None
 
         if (suffix is not None):
