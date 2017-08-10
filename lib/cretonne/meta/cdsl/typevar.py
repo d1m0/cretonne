@@ -17,6 +17,7 @@ try:
         Interval = Tuple[int, int]
         # An Interval where `True` means 'everything'
         BoolInterval = Union[bool, Interval]
+        BoolMemInterval = Union[bool, Tuple[BoolInterval, BoolInterval]]
 except ImportError:
     pass
 
@@ -125,6 +126,24 @@ def legal_bool(bits):
         (bits >= 8 and bits <= MAX_BITS and is_power_of_two(bits))
 
 
+def decode_memory(intvs, addr_range, val_range):
+    # type: (BoolMemInterval, Interval, Interval) -> Set[Tuple[int, int]] # noqa
+    """
+    Decode a memory interval into a set of memory addr/val width tuples.
+    """
+    if intvs is None or intvs is False:
+        return set()
+
+    if intvs is True:
+        intvs = (True, True)
+
+    assert isinstance(intvs, tuple)
+    addr_widths = interval_to_set(decode_interval(intvs[0], addr_range))
+    val_widths = interval_to_set(decode_interval(intvs[1], val_range))
+
+    return set((addr, val) for addr in addr_widths for val in val_widths)
+
+
 class TypeSet(object):
     """
     A set of types.
@@ -172,11 +191,14 @@ class TypeSet(object):
                   widths.
     :param bitvecs : `(min, max)` inclusive range of permitted bitvector
                   widths.
+    :param memories : `((min_addr, max_addr), (min_val, max_val))` inclusive
+                  ranges of permitted bitvector widths for addresses and
+                  values.
     """
 
     def __init__(self, lanes=None, ints=None, floats=None, bools=None,
-                 bitvecs=None):
-        # type: (BoolInterval, BoolInterval, BoolInterval, BoolInterval, BoolInterval) -> None # noqa
+                 bitvecs=None, memories=None):
+        # type: (BoolInterval, BoolInterval, BoolInterval, BoolInterval, BoolInterval, BoolMemInterval) -> None # noqa
         self.lanes = interval_to_set(decode_interval(lanes, (1, MAX_LANES), 1))
         self.ints = interval_to_set(decode_interval(ints, (8, MAX_BITS)))
         self.floats = interval_to_set(decode_interval(floats, (32, 64)))
@@ -184,6 +206,7 @@ class TypeSet(object):
         self.bools = set(filter(legal_bool, self.bools))
         self.bitvecs = interval_to_set(decode_interval(bitvecs,
                                                        (1, MAX_BITVEC)))
+        self.memories = decode_memory(memories, (8, MAX_BITVEC), (8, 8))
 
     def copy(self):
         # type: (TypeSet) -> TypeSet
@@ -194,13 +217,14 @@ class TypeSet(object):
         return deepcopy(self)
 
     def typeset_key(self):
-        # type: () -> Tuple[Tuple, Tuple, Tuple, Tuple, Tuple]
+        # type: () -> Tuple[Tuple, Tuple, Tuple, Tuple, Tuple, Tuple]
         """Key tuple used for hashing and equality."""
         return (tuple(sorted(list(self.lanes))),
                 tuple(sorted(list(self.ints))),
                 tuple(sorted(list(self.floats))),
                 tuple(sorted(list(self.bools))),
-                tuple(sorted(list(self.bitvecs))))
+                tuple(sorted(list(self.bitvecs))),
+                tuple(sorted(list(self.memories))))
 
     def __hash__(self):
         # type: () -> int
@@ -231,12 +255,15 @@ class TypeSet(object):
             s += ', bools={}'.format(pp_set(self.bools))
         if len(self.bitvecs) > 0:
             s += ', bitvecs={}'.format(pp_set(self.bitvecs))
+        if len(self.memories) > 0:
+            s += ', memories={}'.format(pp_set(self.memories))
         return s + ')'
 
     def emit_fields(self, fmt):
         # type: (Formatter) -> None
         """Emit field initializers for this typeset."""
         assert len(self.bitvecs) == 0, "Bitvector types are not emitable."
+        assert len(self.memories) == 0, "Memory types are not emitable."
         fmt.comment(repr(self))
 
         fields = (('lanes', 16),
@@ -273,6 +300,7 @@ class TypeSet(object):
         self.floats.intersection_update(other.floats)
         self.bools.intersection_update(other.bools)
         self.bitvecs.intersection_update(other.bitvecs)
+        self.memories.intersection_update(other.memories)
 
         return self
 
@@ -285,7 +313,8 @@ class TypeSet(object):
             self.ints.issubset(other.ints) and \
             self.floats.issubset(other.floats) and \
             self.bools.issubset(other.bools) and \
-            self.bitvecs.issubset(other.bitvecs)
+            self.bitvecs.issubset(other.bitvecs) and \
+            self.memories.issubset(other.memories)
 
     def lane_of(self):
         # type: () -> TypeSet
@@ -295,6 +324,7 @@ class TypeSet(object):
         new = self.copy()
         new.lanes = set([1])
         new.bitvecs = set()
+        new.memories = set()
         return new
 
     def as_bool(self):
@@ -306,6 +336,7 @@ class TypeSet(object):
         new.ints = set()
         new.floats = set()
         new.bitvecs = set()
+        new.memories = set()
 
         if len(self.lanes.difference(set([1]))) > 0:
             new.bools = self.ints.union(self.floats).union(self.bools)
@@ -324,6 +355,7 @@ class TypeSet(object):
         new.floats = set([x//2 for x in self.floats if x > 32])
         new.bools = set([x//2 for x in self.bools if x > 8])
         new.bitvecs = set([x//2 for x in self.bitvecs if x > 1])
+        new.memories = set()
 
         return new
 
@@ -338,6 +370,7 @@ class TypeSet(object):
         new.bools = set(filter(legal_bool,
                                set([x*2 for x in self.bools if x < MAX_BITS])))
         new.bitvecs = set([x*2 for x in self.bitvecs if x < MAX_BITVEC])
+        new.memories = set()
 
         return new
 
@@ -349,6 +382,7 @@ class TypeSet(object):
         new = self.copy()
         new.bitvecs = set()
         new.lanes = set([x//2 for x in self.lanes if x > 1])
+        new.memories = set()
 
         return new
 
@@ -360,6 +394,7 @@ class TypeSet(object):
         new = self.copy()
         new.bitvecs = set()
         new.lanes = set([x*2 for x in self.lanes if x < MAX_LANES])
+        new.memories = set()
 
         return new
 
@@ -378,7 +413,26 @@ class TypeSet(object):
         new.floats = set()
         new.bitvecs = set([lane_w * nlanes for lane_w in all_scalars
                            for nlanes in self.lanes])
+        new.memories = set()
 
+        return new
+
+    def domain(self):
+        # type: () -> TypeSet
+        """
+        Return a TypeSet describing the domain of any memories in self
+        """
+        new = TypeSet()
+        new.bitvecs = set(mem[0] for mem in self.memories)
+        return new
+
+    def range(self):
+        # type: () -> TypeSet
+        """
+        Return a TypeSet describing the range of any memories in self
+        """
+        new = TypeSet()
+        new.bitvecs = set(mem[1] for mem in self.memories)
         return new
 
     def image(self, func):
@@ -400,6 +454,10 @@ class TypeSet(object):
             return self.double_vector()
         elif (func == TypeVar.TOBITVEC):
             return self.to_bitvec()
+        elif (func == TypeVar.DOMAIN):
+            return self.domain()
+        elif (func == TypeVar.RANGE):
+            return self.range()
         else:
             assert False, "Unknown derived function: " + func
 
@@ -415,11 +473,13 @@ class TypeSet(object):
         if (func == TypeVar.LANEOF):
             new = self.copy()
             new.bitvecs = set()
+            new.memories = set()
             new.lanes = set([2**i for i in range(0, int_log2(MAX_LANES)+1)])
             return new
         elif (func == TypeVar.ASBOOL):
             new = self.copy()
             new.bitvecs = set()
+            new.memories = set()
 
             if 1 not in self.bools:
                 new.ints = self.bools.difference(set([1]))
@@ -473,6 +533,18 @@ class TypeSet(object):
                     new.floats.add(width)
 
             return new
+        elif (func == TypeVar.DOMAIN):
+            new = TypeSet()
+            ranges = interval_to_set(decode_interval(True, (8, 8)))
+            new.memories = set((domain, rng) for domain in self.bitvecs
+                               for rng in ranges)
+            return new
+        elif (func == TypeVar.RANGE):
+            new = TypeSet()
+            domains = interval_to_set(decode_interval(True, (32, 64)))
+            new.memories = set((domain, rng) for domain in domains
+                               for rng in self.bitvecs)
+            return new
         else:
             assert False, "Unknown derived function: " + func
 
@@ -482,7 +554,8 @@ class TypeSet(object):
         Return the number of concrete types represented by this typeset
         """
         return len(self.lanes) * (len(self.ints) + len(self.floats) +
-                                  len(self.bools) + len(self.bitvecs))
+                                  len(self.bools) + len(self.bitvecs)) + \
+            len(self.memories)
 
     def concrete_types(self):
         # type: () -> Iterable[types.ValueType]
@@ -504,6 +577,9 @@ class TypeSet(object):
                 assert nlanes == 1
                 yield types.BVType.with_bits(bits)
 
+        for (addr_width, val_width) in self.memories:
+            yield types.MemType.with_bits(addr_width, val_width)
+
     def get_singleton(self):
         # type: () -> types.ValueType
         """
@@ -517,6 +593,7 @@ class TypeSet(object):
     def widths(self):
         # type: () -> Set[int]
         """ Return a set of the widths of all possible types in self"""
+        assert len(self.memories) == 0, "Widths is undefined on memories"
         scalar_w = self.ints.union(self.floats.union(self.bools))
         scalar_w = scalar_w.union(self.bitvecs)
         return set(w * l for l in self.lanes for w in scalar_w)
@@ -542,14 +619,16 @@ class TypeVar(object):
     :param simd: Allow type variable to assume vector types, or `(min, max)`
                  lane count range.
     :param bitvecs: Allow all BitVec base types, or `(min, max)` bit-range.
+    :param memories: Allow all MemTypes, or `((min_addr, max_addr), (min_cell,
+                 max_cell))` ranges.
     """
 
     def __init__(
             self, name, doc,
             ints=False, floats=False, bools=False,
-            scalars=True, simd=False, bitvecs=False,
+            scalars=True, simd=False, bitvecs=False, memories=False,
             base=None, derived_func=None):
-        # type: (str, str, BoolInterval, BoolInterval, BoolInterval, bool, BoolInterval, BoolInterval, TypeVar, str) -> None # noqa
+        # type: (str, str, BoolInterval, BoolInterval, BoolInterval, bool, BoolInterval, BoolInterval, BoolMemInterval, TypeVar, str) -> None # noqa
         self.name = name
         self.__doc__ = doc
         self.is_derived = isinstance(base, TypeVar)
@@ -567,12 +646,18 @@ class TypeVar(object):
                     ints=ints,
                     floats=floats,
                     bools=bools,
-                    bitvecs=bitvecs)
+                    bitvecs=bitvecs,
+                    memories=memories)
 
     @staticmethod
     def singleton(typ):
         # type: (types.ValueType) -> TypeVar
         """Create a type variable that can only assume a single type."""
+        if isinstance(typ, types.MemType):
+            return TypeVar(typ.name, typ.__doc__,
+                           memories=((typ.addr_bits, typ.addr_bits),
+                                     (typ.val_bits, typ.val_bits)))
+
         scalar = None  # type: ValueType
         if isinstance(typ, types.VectorType):
             scalar = typ.base
@@ -653,6 +738,8 @@ class TypeVar(object):
     HALFVECTOR = 'half_vector'
     DOUBLEVECTOR = 'double_vector'
     TOBITVEC = 'to_bitvec'
+    DOMAIN = 'domain'
+    RANGE = 'range'
 
     @staticmethod
     def is_bijection(func):
@@ -701,6 +788,11 @@ class TypeVar(object):
             assert min(ts.lanes) > 1, "Can't halve a scalar type"
         elif derived_func == TypeVar.DOUBLEVECTOR:
             assert max(ts.lanes) < MAX_LANES, "Can't double 256 lanes."
+        elif (derived_func == TypeVar.DOMAIN or
+              derived_func == TypeVar.RANGE):
+            assert len(ts.memories) > 0 and len(ts.ints) == 0 and\
+                len(ts.floats) == 0 and len(ts.bools) == 0 and \
+                len(ts.bitvecs) == 0
 
         return TypeVar(None, None, base=base, derived_func=derived_func)
 
@@ -770,6 +862,20 @@ class TypeVar(object):
         the same size as self
         """
         return TypeVar.derived(self, self.TOBITVEC)
+
+    def domain(self):
+        # type: () -> TypeVar
+        """
+        Return a derived type variable that represent the domain of a memory
+        """
+        return TypeVar.derived(self, self.DOMAIN)
+
+    def range(self):
+        # type: () -> TypeVar
+        """
+        Return a derived type variable that represent the range of a memory
+        """
+        return TypeVar.derived(self, self.RANGE)
 
     def singleton_type(self):
         # type: () -> ValueType
