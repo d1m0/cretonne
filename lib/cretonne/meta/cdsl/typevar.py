@@ -10,11 +10,12 @@ from . import types, is_power_of_two
 from copy import copy
 
 try:
-    from typing import Tuple, Union, Iterable, Any, Set, TYPE_CHECKING # noqa
+    from typing import Tuple, Union, Iterable, Any, Set, Dict, TYPE_CHECKING # noqa
     if TYPE_CHECKING:
         from srcgen import Formatter  # noqa
         from .types import ValueType  # noqa
         Interval = Tuple[int, int]
+        TypeMap = Dict["TypeVar", "TypeVar"]
         # An Interval where `True` means 'everything'
         BoolInterval = Union[bool, Interval]
         BoolMemInterval = Union[bool, Tuple[BoolInterval, BoolInterval]]
@@ -237,14 +238,14 @@ class TypeSet(object):
         return new
 
     def typeset_key(self):
-        # type: () -> Tuple[Tuple, Tuple, Tuple, Tuple, Tuple, Tuple]
+        # type: () -> Tuple[Tuple, Tuple, Tuple, Tuple, Tuple, Tuple, Tuple]
         """Key tuple used for hashing and equality."""
         return (tuple(sorted(list(self.lanes))),
                 tuple(sorted(list(self.ints))),
                 tuple(sorted(list(self.floats))),
                 tuple(sorted(list(self.bools))),
                 tuple(sorted(list(self.bitvecs))),
-                tuple(sorted(list(self.specials))))
+                tuple(sorted(list(self.specials))),
                 tuple(sorted(list(self.memories))))
 
     def __hash__(self):
@@ -661,7 +662,7 @@ class TypeVar(object):
             bitvecs=False,          # type: BoolInterval
             base=None,              # type: TypeVar
             derived_func=None,      # type: str
-            specials=None           # type: Iterable[types.SpecialType]
+            specials=None,          # type: Iterable[types.SpecialType]
             memories=False,         # type: BoolMemInterval
             ):
         # type: (...) -> None

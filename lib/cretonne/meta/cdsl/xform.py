@@ -2,14 +2,14 @@
 Instruction transformations.
 """
 from __future__ import absolute_import
-from .ast import Def, Var, Apply, var2atom_map
+from .ast import Def, Var, Apply
 from .ti import ti_xform, TypeEnv, get_type_env, TypeConstraint
 from collections import OrderedDict
 from functools import reduce
 from .typevar import TypeVar  # noqa
 
 try:
-    from typing import Union, Iterator, Sequence, Iterable, List, Dict  # noqa
+    from typing import Union, Iterator, Sequence, Iterable, List, Dict, Tuple  # noqa
     from typing import Optional, Set # noqa
     from .ast import Expr, VarMap, VarAtomMap  # noqa
     from .isa import TargetISA  # noqa
@@ -217,8 +217,14 @@ class XForm(object):
     )
     """
 
-    def __init__(self, src, dst, constraints=None, implicit_inputs=None, implicit_defs=None): # noqa
-        # type: (Rtl, Rtl, Optional[Sequence[TypeConstraint]], Optional[Iterable[Var]]) -> None # noqa
+    def __init__(self,
+                 src,   # type: Rtl
+                 dst,   # type: Rtl
+                 constraints=None,  # type: Optional[Sequence[TypeConstraint]]
+                 implicit_inputs=None,  # type: Optional[Set[Var]]
+                 implicit_defs=None  # type: Optional[Set[Var]]
+                 ):
+        # type: (...) -> None
         self.src = src
         self.dst = dst
         # Variables that are inputs to the source pattern.
@@ -242,11 +248,11 @@ class XForm(object):
         # Needed for testing type inference on XForms
         self.symtab = symtab
 
-        self.implicit_inputs = set() if implicit_inputs is None else\
-            set(symtab[str(v)] for v in implicit_inputs)
+        implicit_inputs = set() if implicit_inputs is None else implicit_inputs
+        implicit_defs = set() if implicit_defs is None else implicit_defs
 
-        self.implicit_defs = set() if implicit_defs is None else\
-            set(symtab[str(v)] for v in implicit_defs)
+        self.implicit_inputs = set(symtab[str(v)] for v in implicit_inputs)
+        self.implicit_defs = set(symtab[str(v)] for v in implicit_defs)
 
         assert self.implicit_inputs.issubset(set(self.inputs))
         assert self.implicit_defs.issubset(set(self.defs))
@@ -424,13 +430,13 @@ class XForm(object):
         assert set(v.name for v in self.implicit_inputs)\
             .issubset(set(implicit_inputs_map.keys()))
 
-        internal_impl_inp_m = {v: implicit_inputs_map[v.name]
-                               for v in self.implicit_inputs}
+        internal_impl_inp_m = {
+            v: implicit_inputs_map[v] for v in self.implicit_inputs
+        }  # type: VarAtomMap
 
         try:
-            s = var2atom_map(self.src.substitution(r, internal_impl_inp_m))
+            s = self.src.substitution(r, internal_impl_inp_m)
         except:
-            print ("{}, {}".format(self, r))
             raise
         assert s is not None
 

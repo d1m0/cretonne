@@ -7,7 +7,7 @@ from .formats import InstructionFormat
 
 try:
     from typing import Union, Sequence, List, Tuple, Any, TYPE_CHECKING  # noqa
-    from typing import Dict # noqa
+    from typing import Dict, Set # noqa
     if TYPE_CHECKING:
         from .ast import Expr, Apply, Var, Def, VarAtomMap  # noqa
         from .typevar import TypeVar  # noqa
@@ -378,11 +378,13 @@ class Instruction(object):
             if isinstance(dst, Rtl):
                 actual_inputs = _to_str(dst.free_vars())
                 actual_defs = _to_str(dst.definitions())
+                impl_inputs = _from_str(sem_inputs.intersection(actual_inputs))
+                impl_defs = _from_str(sem_defs.intersection(actual_defs))
                 sem.append(XForm(
                     Rtl(src).copy({}),
                     dst,
-                    _from_str(sem_inputs.intersection(actual_inputs)),
-                    _from_str(sem_defs.intersection(actual_defs)),
+                    implicit_inputs=impl_inputs,
+                    implicit_defs=impl_defs,
                 ))
             elif isinstance(dst, XForm):
                 sem.append(XForm(dst.src.copy({}),

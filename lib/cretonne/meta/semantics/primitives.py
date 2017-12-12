@@ -207,19 +207,6 @@ bvult = Instruction(
         'bvult', r"""Unsigned bitvector less than""",
         ins=(x, y), outs=cond)
 
-<<<<<<< HEAD
-# Extensions
-ToBV = TypeVar('ToBV', 'A bitvector type.', bitvecs=True)
-x1 = Operand('x1', ToBV, doc="")
-
-bvzeroext = Instruction(
-        'bvzeroext', r"""Unsigned bitvector extension""",
-        ins=x, outs=x1, constraints=WiderOrEq(ToBV, BV))
-
-bvsignext = Instruction(
-        'bvsignext', r"""Signed bitvector extension""",
-        ins=x, outs=x1, constraints=WiderOrEq(ToBV, BV))
-=======
 #
 # Other
 #
@@ -236,5 +223,4 @@ bvrand = Instruction(
         Returns a random bitvector. Used to modle unspecified behavior.
         """,
         outs=b)
->>>>>>> Kinda-sorta getting ld-ld comparison queries
 GROUP.close()

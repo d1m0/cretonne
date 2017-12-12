@@ -38,8 +38,10 @@ def verify_semantics(inst, src, xforms):
     #    versions of src with the concrete value filled in.
     for i in inst.imm_opnums:
         op = inst.ins[i]
-        if not (isinstance(op.kind, ImmediateKind) and
-                op.kind.is_enumerable() or op.kind.is_flags()):
+        if not isinstance(op.kind, ImmediateKind):
+            continue
+
+        if not (op.kind.is_enumerable() or op.kind.is_flags()):
             continue
 
         new_variants = []  # type: List[Rtl]

@@ -1,7 +1,7 @@
 from __future__ import absolute_import
 from base.instructions import vselect, vsplit, vconcat, iconst, iadd, bint
 from base.instructions import b1, icmp, ireduce, iadd_cout
-from base.immediates import intcc, imm64
+from base.immediates import intcc
 from base.types import i64, i8, b32, i32, i16, f32
 from cdsl.typevar import TypeVar
 from cdsl.ast import Var
@@ -9,7 +9,7 @@ from cdsl.xform import Rtl
 from unittest import TestCase
 from .elaborate import elaborate
 from .primitives import prim_to_bv, bvsplit, prim_from_bv, bvconcat, bvadd, \
-    bvult, bv_from_imm64, bvite, bool2bv
+    bvult
 import base.semantics  # noqa
 
 
@@ -365,13 +365,9 @@ class TestElaborate(TestCase):
         y = Var('y')
         a = Var('a')
         c_out = Var('c_out')
-        bvc_out = Var('bvc_out')
-        bc_out = Var('bc_out')
         bvx = Var('bvx')
         bvy = Var('bvy')
         bva = Var('bva')
-        bvone = Var('bvone')
-        bvzero = Var('bvzero')
         r = Rtl(
                 (a, c_out) << iadd_cout.i32(x, y),
         )
@@ -381,10 +377,8 @@ class TestElaborate(TestCase):
             bvx << prim_to_bv.i32(x),
             bvy << prim_to_bv.i32(y),
             bva << bvadd.bv32(bvx, bvy),
-            bc_out << bvult.bv32(bva, bvx),
-            bvc_out << bool2bv(bc_out),
+            c_out << bvult.bv32(bva, bvx),
             a << prim_from_bv.i32(bva),
-            c_out << prim_from_bv.b1(bvc_out)
         )
         exp.cleanup_concrete_rtl()
-        assert concrete_rtls_eq(sem, exp)
+        assert concrete_rtls_eq(sem, exp), "{} != {}".format(sem, exp)

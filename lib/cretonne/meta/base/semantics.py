@@ -4,7 +4,7 @@ from semantics.primitives import prim_to_bv, prim_from_bv, bvsplit, bvconcat,\
 from semantics.primitives import bveq, bvne, bvsge, bvsgt, bvsle, bvslt,\
         bvuge, bvugt, bvule, bvult, prim_or, bvite, prim_not, prim_and,\
         bvrand, bvsub
-from semantics.macros import bool2bv, bvadd_imm, bvaligned, bvselect_wide,\
+from semantics.macros import bvadd_imm, bvaligned, bvselect_wide,\
     bvcontains_wide
 from .instructions import vsplit, vconcat, iadd, iadd_cout, icmp, bextend, \
     isplit, iconcat, iadd_cin, iadd_carry, load, isub
@@ -222,10 +222,8 @@ iadd_cout.set_semantics(
         bvx << prim_to_bv(x),
         bvy << prim_to_bv(y),
         bva << bvadd(bvx, bvy),
-        bc_out << bvult(bva, bvx),
-        bvc_out << bool2bv(bc_out),
+        c_out << bvult(bva, bvx),
         a << prim_from_bv(bva),
-        c_out << prim_from_bv(bvc_out)
     ))
 
 iadd_carry.set_semantics(
@@ -237,10 +235,8 @@ iadd_carry.set_semantics(
         bvs << bvzeroext(bvc_in),
         bvt << bvadd(bvx, bvy),
         bva << bvadd(bvt, bvs),
-        bc_out << bvult(bva, bvx),
-        bvc_out << bool2bv(bc_out),
+        c_out << bvult(bva, bvx),
         a << prim_from_bv(bva),
-        c_out << prim_from_bv(bvc_out)
     ))
 
 bextend.set_semantics(
@@ -260,7 +256,7 @@ bextend.set_semantics(
 
 def create_comp_xform(cc, bvcmp_func):
     # type: (Enumerator, Instruction) -> XForm
-    ba = Var('ba')
+    b1a = Var('b1a')
     return XForm(
                Rtl(
                    a << icmp(cc, x, y)
@@ -268,10 +264,8 @@ def create_comp_xform(cc, bvcmp_func):
                Rtl(
                    bvx << prim_to_bv(x),
                    bvy << prim_to_bv(y),
-                   ba << bvcmp_func(bvx, bvy),
-                   bva << bool2bv(ba),
-                   bva_wide << bvzeroext(bva),
-                   a << prim_from_bv(bva_wide),
+                   b1a << bvcmp_func(bvx, bvy),
+                   a << bextend(b1a),
                ),
                constraints=InTypeset(x.get_typevar(), ScalarTS))
 

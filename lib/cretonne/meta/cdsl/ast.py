@@ -16,6 +16,7 @@ try:
         from .operands import ImmediateKind  # noqa
         from .predicates import PredNode  # noqa
         VarAtomMap = Dict["Var", "Atom"]
+        VarMap = Dict["Var", "Var"]
 except ImportError:
     pass
 
@@ -469,7 +470,6 @@ class Apply(Expr):
                     return None
 
             if (isinstance(self_a, Var)):
-                # MERGE TODO: Is there any reason not to allow substituing Var with concrete value??
                 if (self_a not in s):
                     s[self_a] = other_a
                 else:
@@ -483,8 +483,10 @@ class Apply(Expr):
                     if s[other_a] != self_a:
                         return None
             else:
-                assert (isinstance(self_a, Literal) and
-                        isinstance(other_a, Literal))
+                assert isinstance(self_a, Literal),\
+                    "Unexpected types {}".format(self_a)
+                assert isinstance(other_a, Literal),\
+                    "Unexpected types {}".format(self_a)
                 # Guaranteed by self.inst == other.inst
                 assert self_a.kind == other_a.kind
                 if (self_a.value != other_a.value):
@@ -595,7 +597,7 @@ class Enumerator(Literal):
         return '{}.{}'.format(self.kind, self.value)
 
 
-class FlagSet(Expr):
+class FlagSet(Literal):
     """
     A value representing a set of flags.
 

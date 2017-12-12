@@ -8,7 +8,8 @@ try:
     from typing import Union, Dict, TYPE_CHECKING, Iterable  # noqa
     OperandSpec = Union['OperandKind', ValueType, TypeVar]
     if TYPE_CHECKING:
-        from .ast import Enumerator, ConstantInt, ConstantBits, Literal, FlagSet  # noqa
+        from .ast import Enumerator, ConstantInt, ConstantBits # noqa
+        from .ast import Literal, FlagSet, Atom # noqa
 except ImportError:
     pass
 
@@ -89,7 +90,7 @@ class ImmediateKind(OperandKind):
                 name, doc, default_member, rust_type)
         self.values = values
         self.flags = flags
-        assert not (self.is_enumerated() and self.is_flags())
+        assert not (self.is_enumerable() and self.is_flags())
 
     def __repr__(self):
         # type: () -> str
@@ -102,7 +103,7 @@ class ImmediateKind(OperandKind):
         `Enumerator` AST nodes: `icmp.i32(intcc.ult, a, b)`.
         """
         from .ast import Enumerator  # noqa
-        if not self.is_enumerated():
+        if not self.is_enumerable():
             raise AssertionError(
                     '{n} is not an enumerated operand kind: {n}.{a}'.format(
                         n=self.name, a=value))
@@ -130,7 +131,7 @@ class ImmediateKind(OperandKind):
         if (len(values) > 0):
             assert len(values) == 1, "Expected one const"
             value = values[0]
-            if self.is_enumerated():
+            if self.is_enumerable():
                 raise AssertionError(
                     "{}({}): Can't make a constant numeric value for an enum"
                     .format(self.name, value))
@@ -175,13 +176,6 @@ class ImmediateKind(OperandKind):
         # type: () -> bool
         return self.values is not None
 
-    def possible_values(self):
-        # type: () -> Iterable[Literal]
-        from cdsl.ast import Enumerator # noqa
-        assert self.is_enumerable()
-        for v in self.values.keys():
-            yield Enumerator(self, v)
-
     def is_flags(self):
         # type: () -> bool
         """Return true if this immediate contains some flags."""
@@ -191,8 +185,8 @@ class ImmediateKind(OperandKind):
         # type: () -> Iterable[Atom]
         """Return an iterator over the possible values of this immediate"""
         from .ast import Enumerator, FlagSet  # noqa
-        assert self.is_enumerated() or self.is_flags()
-        if self.is_enumerated():
+        assert self.is_enumerable() or self.is_flags()
+        if self.is_enumerable():
             for v in self.values.keys():
                 yield Enumerator(self, v)
         else:

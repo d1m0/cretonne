@@ -4,7 +4,7 @@ primitive instructions.
 """
 from .primitives import GROUP as PRIMITIVES, prim_from_bv, prim_to_bv, bvadd,\
     bvult, bvzeroext, bvsplit, bvconcat, bvsignext, bv_from_imm64, bvite, bvsub
-from cdsl.ast import Var, var2atom_map, ConstantInt
+from cdsl.ast import Var, ConstantInt
 from cdsl.types import BVType
 from .elaborate import elaborate
 from z3 import BitVec, ZeroExt, SignExt, And, Extract, Concat, Not, Solver,\
@@ -195,7 +195,7 @@ def equivalent(r1, r2, inp_m, out_m):
         """Obtain a new map from m, by mapping m's keys with k_m and m's values
         with v_m"""
         res = {}  # type: VarAtomMap
-        for (k, v) in m1.items():
+        for (k, v) in m.items():
             new_k = k_m[k]
             new_v = v_m[v]
             assert isinstance(new_k, Var)
@@ -257,7 +257,7 @@ def xform_correct(x, typing):
     # Get the primitive semantic Rtls for src and dst
     prim_src = elaborate(src)
     prim_dst = elaborate(dst)
-    print ("{}\n\n{}".format(prim_src, prim_dst))
+    # print ("{}\n\n{}".format(prim_src, prim_dst))
     asserts = equivalent(prim_src, prim_dst, inp_m, out_m)
 
     s = Solver()
